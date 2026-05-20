@@ -13,6 +13,7 @@ from agentscope.model import OpenAIChatModel
 from dotenv import load_dotenv
 
 from .models import get_model_config
+from .skills import get_skill_manager, reload_skill_manager
 
 load_dotenv()
 
@@ -105,12 +106,32 @@ class CustomerServiceAgent:
             memory=InMemoryMemory(),
         )
 
+        # Initialize skill manager
+        self._skill_manager = get_skill_manager()
+        self._active_skill: Optional[str] = None
+        self._load_intent_rules()
+
+    def _load_intent_rules(self) -> None:
+        """Load intent routing rules from config."""
+        intent_config_path = Path(__file__).parent.parent / "config" / "intent_routing.json"
+        if intent_config_path.exists():
+            with open(intent_config_path, "r", encoding="utf-8") as f:
+                rules = json.load(f)
+                self._skill_manager.load_intent_rules(rules)
+
     def reset_history(self) -> None:
         """Clear conversation history."""
         self.agent.memory.clear()
+        self._active_skill = None
 
     async def chat(self, user_input: str) -> str:
         """Process user input and return agent response."""
+        # Check for skill match first
+        skill_result = await self._skill_manager.detect_and_execute(user_input, self)
+        if skill_result and skill_result.get("executed"):
+            self._active_skill = skill_result.get("skill")
+            return skill_result.get("result", {}).get("response", "")
+
         # Create user message
         msg = Msg(
             name="user",
@@ -160,6 +181,8 @@ def reload_agent() -> CustomerServiceAgent:
     """Reload the agent with fresh configuration."""
     global _agent
     _agent = None
+    # Also reload skill manager
+    reload_skill_manager()
     return get_agent()
 
 

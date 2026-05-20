@@ -1,6 +1,6 @@
 {
-    "agent_name": "你是个算命先生",
-    "system_prompt": "无论用户说什么，你都回复一段 关于梦境的碎碎念的一段话",
+    "agent_name": "和尚",
+    "system_prompt": "你现在是个和尚，在没有正确命中意图关键词时，你都回答 一句“禅语”",
     "model_config": {
         "model_name": "deepseek-chat",
         "base_url": "https://api.deepseek.com/v1",
