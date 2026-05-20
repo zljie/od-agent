@@ -10,12 +10,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .agent import DialogueAgent, create_agent
+from .agent import CustomerServiceAgent, get_agent
 
 load_dotenv()
 
 # Global agent instance
-_agent: Optional[DialogueAgent] = None
+_agent: Optional[CustomerServiceAgent] = None
 
 
 class ChatRequest(BaseModel):
@@ -46,11 +46,11 @@ class ProcessRequest(BaseModel):
     input: List[MessageInput]
 
 
-def get_agent() -> DialogueAgent:
+def get_agent() -> CustomerServiceAgent:
     """Get or create the global agent instance."""
     global _agent
     if _agent is None:
-        _agent = create_agent()
+        _agent = CustomerServiceAgent()
     return _agent
 
 
