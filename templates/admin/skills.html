@@ -1,0 +1,41 @@
+<div class="card">
+    <div class="card-header-row">
+        <h2>Registered Skills</h2>
+    </div>
+    <p style="color: #666; margin-bottom: 15px;">Skills are automatically triggered based on intent detection.</p>
+
+    <div class="skill-list" id="skillList">
+        <div x-show="!skills || skills.length === 0" style="color: #666; text-align: center; padding: 20px;">No skills registered.</div>
+        <template x-for="skill in skills" :key="skill.name">
+            <div class="skill-card">
+                <h4 x-text="skill.name"></h4>
+                <p x-text="skill.description"></p>
+                <div class="skill-meta">
+                    <span x-text="'Priority: ' + skill.priority"></span>
+                    <span x-text="'Keywords: ' + (skill.keywords_count || 0)"></span>
+                </div>
+                <span class="skill-badge">Active</span>
+            </div>
+        </template>
+    </div>
+
+    <div class="skill-test-area">
+        <h3>Skill Detection Test</h3>
+        <div class="form-group">
+            <label for="testMessage">Test Message</label>
+            <input
+                type="text"
+                id="testMessage"
+                x-model="testMessage"
+                placeholder="Enter a test message to detect skill trigger..."
+            >
+        </div>
+        <button class="btn btn-success" @click="testSkillDetection()">Test Detection</button>
+
+        <div
+            class="test-result"
+            x-show="testResult !== null"
+            x-text="testResult"
+        ></div>
+    </div>
+</div>

@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OD Assistant - Agent Configuration</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <script type="module" src="https://unpkg.com/deep-chat@1.4.11/dist/deepChat.bundle.js"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+</head>
+<body>
+    <div class="container" x-data="adminApp()">
+
+        <div class="header">
+            <h1>OD Assistant Admin</h1>
+            <p>Configure and manage your customer service agent</p>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tabs">
+            <button
+                class="tab-btn"
+                :class="{ 'active': activeTab === 'config' }"
+                @click="switchTab('config')"
+            >Configuration</button>
+            <button
+                class="tab-btn"
+                :class="{ 'active': activeTab === 'intents' }"
+                @click="switchTab('intents')"
+            >Intent Routing</button>
+            <button
+                class="tab-btn"
+                :class="{ 'active': activeTab === 'skills' }"
+                @click="switchTab('skills')"
+            >Skills</button>
+        </div>
+
+        <!-- Tab: Configuration -->
+        <div id="tab-config" x-show="activeTab === 'config'" x-transition>
+            {% include 'admin/config.html' %}
+
+            <!-- Action Bar — placed in root scope to avoid $parent binding issues -->
+            <div class="card">
+                <div class="card-header-row">
+                    <h2>Actions</h2>
+                </div>
+                <div class="action-bar" style="margin-top: 0;">
+                    <button class="btn btn-primary" @click="saveConfig()" :disabled="isSaving || isReloading" data-tooltip="Save current config to agent_config.json">
+                        <span x-show="isSaving" class="btn-spinner"></span>
+                        <span x-text="isSaving ? 'Saving...' : 'Save Configuration'"></span>
+                    </button>
+                    <button class="btn btn-success" @click="reloadAgent()" :disabled="isSaving || isReloading" data-tooltip="Reload agent with new config (restarts session)">
+                        <span x-show="isReloading" class="btn-spinner"></span>
+                        <span x-text="isReloading ? 'Reloading...' : 'Reload Agent'"></span>
+                    </button>
+                    <button class="btn btn-danger" @click="resetHistory()" data-tooltip="Clear conversation memory (system prompt preserved)">
+                        Reset History
+                    </button>
+                </div>
+
+                <!-- Inline status toast — root scope, always accessible -->
+                <div class="toast-container">
+                    <div x-show="statusMsg" :class="'toast toast-' + statusType" x-transition>
+                        <span x-text="statusMsg"></span>
+                        <button class="toast-close" @click="statusMsg = ''">&times;</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Intent Routing -->
+        <div id="tab-intents" x-show="activeTab === 'intents'" x-transition>
+            {% include 'admin/intents.html' %}
+        </div>
+
+        <!-- Tab: Skills -->
+        <div id="tab-skills" x-show="activeTab === 'skills'" x-transition>
+            {% include 'admin/skills.html' %}
+        </div>
+
+        <!-- Fixed Chat Widget -->
+        <deep-chat
+            id="testChat"
+            chat-title="OD Assistant"
+            user-role="user"
+            ai-role="assistant"
+            intro-message='{"text": "Hello! How can I help you?"}'
+            drop-image-enabled="false"
+            history-section-position="top"
+            show-reload-button="true"
+            stream="true"
+            ai-avatar='{"initial": "A"}'
+            user-avatar='{"initial": "U"}'
+            styles='{
+                "chatContainer": {"position": "fixed", "bottom": "0", "left": "0", "right": "0", "height": "450px", "z-index": "1000", "borderRadius": "16px 16px 0 0", "boxShadow": "0 -4px 20px rgba(0,0,0,0.15)"},
+                "title": {"background": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", "color": "white"},
+                "toggleChatButton": {"background": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"},
+                "loader": {"dotsColor": "#667eea"}
+            }'
+            response-stream-msg-delay="0"
+            response-connect-errors-extend-chat="false"
+            connect-error-msg-chat="Connection failed. Please try again."
+            connect-error-msg="Connection failed. Please try again."
+            attach-input-area-init='{"minimise": true}'
+        ></deep-chat>
+
+    </div>
+
+    <script>
+        function adminApp() {
+            return {
+                activeTab: 'config',
+
+                // Config tab state
+                agentName: '',
+                systemPrompt: '',
+                // LLM Provider & Model
+                providerId: 'deepseek',
+                modelName: 'deepseek-chat',
+                baseUrl: 'https://api.deepseek.com/v1',
+                // Generation parameters
+                temperature: 0.7,
+                maxTokens: 2000,
+                topP: 1.0,
+                topK: 0,
+                presencePenalty: 0.0,
+                frequencyPenalty: 0.0,
+                seed: null,
+                // Thinking
+                thinking: false,
+                thinkingBudget: 4000,
+                // Provider catalog (loaded from /models)
+                providers: [],
+                // Per-action states — each button has its own loading flag
+                isSaving: false,
+                isReloading: false,
+                isRefreshing: false,
+                // Unified status message for all actions
+                statusMsg: '',
+                statusType: 'success',
+
+                // Intent tab state
+                intents: [],
+                intentLoading: false,
+                newIntent: { name: '', handler: '', keywords: [], description: '', priority: 10 },
+
+                // Skill tab state
+                skills: [],
+                testMessage: '',
+                testResult: null,
+
+                // Computed helpers
+                get currentProvider() {
+                    return this.providers.find(p => p.id === this.providerId) || null;
+                },
+                get currentModel() {
+                    const p = this.currentProvider;
+                    if (!p) return null;
+                    return p.models.find(m => m.id === this.modelName) || null;
+                },
+
+                init() {
+                    this.loadConfig();
+                    this.loadSkills();
+                },
+
+                switchTab(tab) {
+                    this.activeTab = tab;
+                    if (tab === 'intents') {
+                        this.loadIntents();
+                    }
+                },
+
+                // --- Config methods ---
+                async loadConfig() {
+                    this.isRefreshing = true;
+                    try {
+                        const response = await fetch('/config');
+                        const data = await response.json();
+                        this.agentName = data.agent_name || 'OD_Assistant';
+                        this.systemPrompt = data.system_prompt || '';
+                        this.providers = data.providers || [];
+                        this.providerId = data.provider_id || 'deepseek';
+                        this.modelName = data.model_name || 'deepseek-chat';
+                        this.baseUrl = data.base_url || '';
+                        this.temperature = data.temperature ?? 0.7;
+                        this.maxTokens = data.max_tokens ?? 2000;
+                        this.topP = data.top_p ?? 1.0;
+                        this.topK = data.top_k ?? 0;
+                        this.presencePenalty = data.presence_penalty ?? 0.0;
+                        this.frequencyPenalty = data.frequency_penalty ?? 0.0;
+                        this.seed = data.seed ?? null;
+                        this.thinking = data.thinking ?? false;
+                        this.thinkingBudget = data.thinking_budget ?? 4000;
+                    } catch (error) {
+                        this.statusMsg = 'Failed to load configuration: ' + error.message;
+                        this.statusType = 'error';
+                    } finally {
+                        this.isRefreshing = false;
+                    }
+                },
+
+                onProviderChange() {
+                    // When provider changes, pick the first model or clear it
+                    const p = this.providers.find(pr => pr.id === this.providerId);
+                    if (p && p.models.length > 0) {
+                        this.modelName = p.models[0].id;
+                        this.baseUrl = p.default_base_url || this.baseUrl;
+                    } else {
+                        this.modelName = '';
+                        this.baseUrl = p?.default_base_url || this.baseUrl;
+                    }
+                    // Disable thinking when switching away from a thinking-capable provider
+                    if (p && !p.supports_thinking) {
+                        this.thinking = false;
+                    }
+                },
+
+                onModelChange() {
+                    // Optional: auto-set thinking=false when switching to a non-thinking model
+                    const m = this.currentModel;
+                    if (m && !m.supports_thinking) {
+                        this.thinking = false;
+                    }
+                },
+
+                resetBaseUrl() {
+                    const p = this.providers.find(pr => pr.id === this.providerId);
+                    if (p) this.baseUrl = p.default_base_url;
+                },
+
+                supportsThinking() {
+                    const p = this.currentProvider;
+                    return p && p.supports_thinking;
+                },
+
+                async saveConfig() {
+                    this.isSaving = true;
+                    this.statusMsg = '';
+                    const config = {
+                        agent_name: this.agentName,
+                        system_prompt: this.systemPrompt,
+                        llm_config: {
+                            provider_id: this.providerId,
+                            model_name: this.modelName,
+                            base_url: this.baseUrl,
+                            temperature: parseFloat(this.temperature),
+                            max_tokens: parseInt(this.maxTokens),
+                            top_p: parseFloat(this.topP),
+                            top_k: parseInt(this.topK),
+                            presence_penalty: parseFloat(this.presencePenalty),
+                            frequency_penalty: parseFloat(this.frequencyPenalty),
+                            seed: (this.seed !== null && this.seed !== '') ? parseInt(this.seed) : null,
+                            thinking: this.thinking,
+                            thinking_budget: parseInt(this.thinkingBudget),
+                        }
+                    };
+                    try {
+                        const response = await fetch('/config', {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(config)
+                        });
+                        if (!response.ok) {
+                            throw new Error(`Server error: ${response.status}`);
+                        }
+                        // Automatically reload agent to pick up the new config (hot-reload)
+                        const reloadResp = await fetch('/config/reload', {method: 'POST'});
+                        if (!reloadResp.ok) throw new Error(`Reload error: ${reloadResp.status}`);
+                        this.statusMsg = 'Configuration saved and agent reloaded!';
+                        this.statusType = 'success';
+                    } catch (error) {
+                        this.statusMsg = 'Failed to save configuration: ' + error.message;
+                        this.statusType = 'error';
+                    } finally {
+                        this.isSaving = false;
+                    }
+                },
+
+                async reloadAgent() {
+                    if (!confirm('Are you sure you want to reload the agent? This will restart the current session.')) return;
+                    this.isReloading = true;
+                    this.statusMsg = '';
+                    try {
+                        const response = await fetch('/config/reload', {method: 'POST'});
+                        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                        this.statusMsg = 'Agent reloaded successfully!';
+                        this.statusType = 'success';
+                        await this.loadConfig();
+                    } catch (error) {
+                        this.statusMsg = 'Failed to reload agent: ' + error.message;
+                        this.statusType = 'error';
+                    } finally {
+                        this.isReloading = false;
+                    }
+                },
+
+                async resetHistory() {
+                    if (!confirm('Are you sure you want to reset the conversation history?')) return;
+                    try {
+                        const response = await fetch('/config/reset', {method: 'POST'});
+                        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                        this.statusMsg = 'Conversation history cleared!';
+                        this.statusType = 'success';
+                    } catch (error) {
+                        this.statusMsg = 'Failed to reset history: ' + error.message;
+                        this.statusType = 'error';
+                    }
+                },
+
+                // --- Intent methods ---
+                addKeyword(keyword) {
+                    const trimmed = keyword.trim();
+                    if (trimmed && !this.newIntent.keywords.includes(trimmed)) {
+                        this.newIntent.keywords.push(trimmed);
+                    }
+                },
+
+                removeKeyword(keyword) {
+                    this.newIntent.keywords = this.newIntent.keywords.filter(k => k !== keyword);
+                },
+
+                async loadIntents() {
+                    try {
+                        const response = await fetch('/intents');
+                        this.intents = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load intents:', error);
+                        this.intents = [];
+                    }
+                },
+
+                async submitIntent() {
+                    const name = this.newIntent.name.trim();
+                    const handler = this.newIntent.handler.trim();
+                    if (!name || !handler) {
+                        alert('Please fill in intent name and handler.');
+                        return;
+                    }
+                    try {
+                        const response = await fetch('/intents', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(this.newIntent)
+                        });
+                        if (!response.ok) throw new Error('Failed to add intent');
+                        await this.loadIntents();
+                        this.newIntent = { name: '', handler: '', keywords: [], description: '', priority: 10 };
+                        const input = document.getElementById('keywordInput');
+                        if (input) input.value = '';
+                    } catch (error) {
+                        alert('Failed to add intent: ' + error.message);
+                    }
+                },
+
+                async deleteIntent(index) {
+                    if (!confirm('Are you sure you want to delete this intent?')) return;
+                    try {
+                        await fetch(`/intents/${index}`, {method: 'DELETE'});
+                        await this.loadIntents();
+                    } catch (error) {
+                        alert('Failed to delete intent: ' + error.message);
+                    }
+                },
+
+                // --- Skill methods ---
+                async loadSkills() {
+                    try {
+                        const response = await fetch('/skills');
+                        const data = await response.json();
+                        this.skills = data.skills || [];
+                    } catch (error) {
+                        console.error('Failed to load skills:', error);
+                    }
+                },
+
+                async testSkillDetection() {
+                    const message = this.testMessage.trim();
+                    if (!message) {
+                        alert('Please enter a test message');
+                        return;
+                    }
+                    this.testResult = 'Detecting...';
+                    try {
+                        const response = await fetch('/skills/detect', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({message: message})
+                        });
+                        const result = await response.json();
+                        if (result.matched) {
+                            this.testResult = `Detected skill: ${result.intent}\nHandler: ${result.handler}\nMatched keyword: ${result.matched_keyword}`;
+                        } else {
+                            this.testResult = 'No matching skill detected.';
+                        }
+                    } catch (error) {
+                        this.testResult = 'Detection failed: ' + error.message;
+                    }
+                },
+
+                // Chat init — configure deep-chat for SSE streaming via unified /chat endpoint
+                initChat() {
+                    const chatElement = document.getElementById('testChat');
+                    if (!chatElement) return;
+                    chatElement.request = {
+                        url: '/chat',
+                        method: 'POST',
+                        stream: true,
+                        headers: {'Content-Type': 'application/json'}
+                    };
+                    chatElement.responseHandler = function(response) {
+                        if (response instanceof EventSource) return;
+                        return new Promise(function(resolve, reject) {
+                            if (response.status === 200) {
+                                response.json().then(function(data) {
+                                    resolve({ text: data.text || data.response || 'No response' });
+                                }).catch(reject);
+                            } else {
+                                response.json().then(function(data) {
+                                    reject(new Error(data.detail || 'Request failed'));
+                                }).catch(function() {
+                                    reject(new Error('Request failed with status ' + response.status));
+                                });
+                            }
+                        });
+                    };
+                }
+            }
+        }
+
+        // Initialize chat after Alpine loads
+        document.addEventListener('alpine:init', function() {
+            const chatElement = document.getElementById('testChat');
+            if (chatElement) {
+                chatElement.request = {
+                    url: '/chat',
+                    method: 'POST',
+                    stream: true,
+                    headers: {'Content-Type': 'application/json'}
+                };
+                chatElement.responseHandler = function(response) {
+                    if (response instanceof EventSource) return;
+                    return new Promise(function(resolve, reject) {
+                        if (response.status === 200) {
+                            response.json().then(function(data) {
+                                resolve({ text: data.text || data.response || 'No response' });
+                            }).catch(reject);
+                        } else {
+                            response.json().then(function(data) {
+                                reject(new Error(data.detail || 'Request failed'));
+                            }).catch(function() {
+                                reject(new Error('Request failed with status ' + response.status));
+                            });
+                        }
+                    });
+                };
+            }
+        });
+    </script>
+</body>
+</html>

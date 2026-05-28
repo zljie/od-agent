@@ -1,0 +1,73 @@
+<div class="card">
+    <h2>Intent Routing Rules</h2>
+    <p style="color: #666; margin-bottom: 15px;">Configure keyword-based routing to direct users to specialized agents or handlers.</p>
+
+    <!-- Intent List (Alpine-driven) -->
+    <div class="intent-list">
+        <div x-show="intentLoading" style="text-align: center; padding: 20px; color: #888;">
+            Loading intents...
+        </div>
+        <template x-if="!intentLoading && intents.length === 0">
+            <p style="color: #666; text-align: center; padding: 20px;">No intent rules configured yet. Add your first rule below.</p>
+        </template>
+        <template x-for="(intent, index) in intents" :key="index">
+            <div class="intent-item">
+                <div class="intent-item-header">
+                    <h4 x-text="intent.name || 'Unnamed Intent'"></h4>
+                    <span style="color: #999; font-size: 12px;">Priority: <span x-text="intent.priority || 10"></span></span>
+                </div>
+                <div class="intent-keywords">
+                    <template x-for="kw in (intent.keywords || [])" :key="kw">
+                        <span x-text="kw"></span>
+                    </template>
+                </div>
+                <p style="color: #666; font-size: 13px; margin-bottom: 10px;" x-text="intent.description || 'No description'"></p>
+                <p style="color: #667eea; font-size: 13px; font-weight: 600;">Handler: <span x-text="intent.handler || 'default'"></span></p>
+                <div class="intent-actions" style="margin-top: 10px;">
+                    <button class="btn btn-sm btn-delete" @click="deleteIntent(index)">Delete</button>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Add New Intent Form -->
+    <div class="add-intent-form">
+        <h3>+ Add New Intent Rule</h3>
+        <div class="grid">
+            <div class="form-group">
+                <label for="intentName">Intent Name</label>
+                <input type="text" id="intentName" x-model="newIntent.name" placeholder="e.g., Billing Inquiry">
+            </div>
+            <div class="form-group">
+                <label for="intentHandler">Handler / Agent</label>
+                <input type="text" id="intentHandler" x-model="newIntent.handler" placeholder="e.g., billing_agent or /api/billing">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Keywords (press Enter to add)</label>
+            <input
+                type="text"
+                id="keywordInput"
+                placeholder="Type keyword and press Enter..."
+                @keydown.enter.prevent="addKeyword($el.value); $el.value = ''"
+            >
+            <div style="margin-top: 10px; min-height: 30px;">
+                <template x-for="kw in newIntent.keywords" :key="kw">
+                    <span class="keyword-tag">
+                        <span x-text="kw"></span>
+                        <button type="button" @click="removeKeyword(kw)">&times;</button>
+                    </span>
+                </template>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="intentDescription">Description (optional)</label>
+            <input type="text" id="intentDescription" x-model="newIntent.description" placeholder="Brief description of this intent">
+        </div>
+        <div class="form-group">
+            <label for="intentPriority">Priority (higher = checked first)</label>
+            <input type="number" id="intentPriority" x-model="newIntent.priority" min="1" max="100">
+        </div>
+        <button class="btn btn-success" @click="submitIntent()">Add Intent</button>
+    </div>
+</div>

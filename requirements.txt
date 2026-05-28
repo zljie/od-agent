@@ -2,6 +2,10 @@
 agentscope>=1.0.0
 fastapi[standard]>=0.115.0
 uvicorn[standard]>=0.32.0
+sse-starlette>=1.6.0
+
+# Template engine
+jinja2>=3.1.0
 
 # Environment management
 python-dotenv>=1.0.0

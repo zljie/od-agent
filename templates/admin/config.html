@@ -1,0 +1,176 @@
+<!-- Agent Configuration — unified single card merging Agent Identity, LLM, and Thinking -->
+<div class="card">
+    <div class="card-header-row">
+        <h2>Agent Configuration</h2>
+    </div>
+
+    <!-- Section: Agent Identity -->
+    <div class="config-section">
+        <h3 class="section-title">Identity</h3>
+        <div class="grid" style="grid-template-columns: 1fr 2fr;">
+            <div class="form-group">
+                <label for="agentNameInput">Agent Name</label>
+                <input type="text" id="agentNameInput" x-model="agentName" placeholder="OD_Assistant">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="systemPrompt">System Prompt</label>
+            <textarea id="systemPrompt" x-model="systemPrompt" placeholder="Enter system prompt" rows="4"></textarea>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Section: LLM Provider & Model -->
+    <div class="config-section">
+        <h3 class="section-title">LLM Provider &amp; Model</h3>
+        <div class="grid" style="grid-template-columns: 1fr 2fr;">
+            <div class="form-group">
+                <label for="providerSelect">Provider</label>
+                <select id="providerSelect" x-model="providerId" @change="onProviderChange()">
+                    <template x-for="p in providers" :key="p.id">
+                        <option :value="p.id" x-text="p.name"></option>
+                    </template>
+                </select>
+                <p class="field-hint" x-text="currentProvider?.description || ''"></p>
+            </div>
+
+            <div class="form-group">
+                <template x-if="currentProvider && currentProvider.models.length > 0">
+                    <div>
+                        <label for="modelSelect">Model</label>
+                        <select id="modelSelect" x-model="modelName" @change="onModelChange()">
+                            <template x-for="m in currentProvider.models" :key="m.id">
+                                <option :value="m.id" x-text="m.name"></option>
+                            </template>
+                        </select>
+                        <p class="field-hint" x-text="currentModel?.description || ''"></p>
+                    </div>
+                </template>
+                <template x-if="!currentProvider || currentProvider.models.length === 0">
+                    <div>
+                        <label for="customModelInput">Model ID</label>
+                        <input type="text" id="customModelInput" x-model="modelName" placeholder="e.g. deepseek-reasoner">
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="baseUrl">API Base URL</label>
+            <div class="url-input-wrapper">
+                <input type="text" id="baseUrl" x-model="baseUrl" placeholder="https://api.deepseek.com/v1">
+                <button class="btn btn-sm btn-outline" @click="resetBaseUrl()" title="Reset to provider default">Reset</button>
+            </div>
+            <p class="field-hint">API Key is read from environment variables (<code>DEEPSEEK_API_KEY</code> etc.) — not stored here.</p>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Section: Generation Parameters -->
+    <div class="config-section">
+        <h3 class="section-title">Generation Parameters</h3>
+
+        <!-- Row 1: core sampling params -->
+        <div class="grid" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+            <div class="form-group">
+                <label for="temperature">Temperature</label>
+                <input type="number" id="temperature" x-model="temperature"
+                       min="0" max="2" step="0.05"
+                       :disabled="thinking && currentProvider?.thinking_disabled_params?.includes('temperature')">
+                <p class="field-hint">Controls randomness. Lower = more focused.</p>
+                <p class="field-hint" x-show="thinking && currentProvider?.thinking_disabled_params?.includes('temperature')"
+                   style="color: #e67e22;">Disabled in thinking mode</p>
+            </div>
+
+            <div class="form-group">
+                <label for="topP">Top P</label>
+                <input type="number" id="topP" x-model="topP"
+                       min="0" max="1" step="0.05"
+                       :disabled="thinking && currentProvider?.thinking_disabled_params?.includes('top_p')">
+                <p class="field-hint">Nucleus sampling threshold.</p>
+                <p class="field-hint" x-show="thinking && currentProvider?.thinking_disabled_params?.includes('top_p')"
+                   style="color: #e67e22;">Disabled in thinking mode</p>
+            </div>
+
+            <div class="form-group">
+                <label for="topK">Top K</label>
+                <input type="number" id="topK" x-model="topK"
+                       min="0" max="100" step="1"
+                       :disabled="thinking && currentProvider?.thinking_disabled_params?.includes('top_k')">
+                <p class="field-hint">Token candidate pool size. 0 = disabled.</p>
+                <p class="field-hint" x-show="thinking && currentProvider?.thinking_disabled_params?.includes('top_k')"
+                   style="color: #e67e22;">Disabled in thinking mode</p>
+            </div>
+
+            <div class="form-group">
+                <label for="maxTokens">Max Tokens</label>
+                <input type="number" id="maxTokens" x-model="maxTokens" min="100" max="32000">
+                <p class="field-hint">Maximum tokens in response.</p>
+            </div>
+        </div>
+
+        <!-- Row 2: penalty params -->
+        <div class="grid" style="grid-template-columns: 1fr 1fr 1fr;">
+            <div class="form-group">
+                <label for="presencePenalty">Presence Penalty</label>
+                <input type="number" id="presencePenalty" x-model="presencePenalty"
+                       min="-2" max="2" step="0.1"
+                       :disabled="thinking && currentProvider?.thinking_disabled_params?.includes('presence_penalty')">
+                <p class="field-hint">Encourages new topics (-2 to 2).</p>
+                <p class="field-hint" x-show="thinking && currentProvider?.thinking_disabled_params?.includes('presence_penalty')"
+                   style="color: #e67e22;">Disabled in thinking mode</p>
+            </div>
+
+            <div class="form-group">
+                <label for="frequencyPenalty">Frequency Penalty</label>
+                <input type="number" id="frequencyPenalty" x-model="frequencyPenalty"
+                       min="-2" max="2" step="0.1"
+                       :disabled="thinking && currentProvider?.thinking_disabled_params?.includes('frequency_penalty')">
+                <p class="field-hint">Reduces repetition (-2 to 2).</p>
+                <p class="field-hint" x-show="thinking && currentProvider?.thinking_disabled_params?.includes('frequency_penalty')"
+                   style="color: #e67e22;">Disabled in thinking mode</p>
+            </div>
+
+            <div class="form-group">
+                <label for="seed">Seed</label>
+                <input type="number" id="seed" x-model="seed" placeholder="Leave empty for random"
+                       min="-1" max="2147483647" step="1">
+                <p class="field-hint">Fixed seed for reproducibility. Empty = random.</p>
+            </div>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Section: Thinking Mode -->
+    <div class="config-section" x-show="supportsThinking()">
+        <h3 class="section-title">
+            Thinking Mode
+            <span class="badge thinking-badge" x-show="thinking">ON</span>
+        </h3>
+        <div class="thinking-panel">
+            <label class="toggle-label">
+                <input type="checkbox" x-model="thinking">
+                <span>Enable Thinking Mode</span>
+            </label>
+            <p class="field-hint" style="margin-top: 8px;">
+                When enabled, the model outputs a reasoning chain before the final answer,
+                improving accuracy on complex problems.
+                <strong style="color: #e67e22;" x-show="thinking && currentProvider?.thinking_disabled_params?.length > 0">
+                    Note: <span x-text="currentProvider.thinking_disabled_params.join(', ')"></span> are
+                    disabled in thinking mode for this provider.
+                </strong>
+            </p>
+
+            <!-- Thinking Budget — only shown when thinking is enabled -->
+            <div class="form-group" x-show="thinking" style="margin-top: 12px;">
+                <label for="thinkingBudget">Thinking Budget</label>
+                <input type="number" id="thinkingBudget" x-model="thinkingBudget"
+                       min="100" max="8000" step="100">
+                <p class="field-hint">Tokens for reasoning chain. Higher = more thorough.</p>
+            </div>
+        </div>
+    </div>
+</div>

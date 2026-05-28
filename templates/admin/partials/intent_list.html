@@ -1,0 +1,22 @@
+{% if not intents %}
+<p style="color: #666; text-align: center; padding: 20px;">No intent rules configured yet. Add your first rule below.</p>
+{% else %}
+{% for intent in intents %}
+<div class="intent-item">
+    <div class="intent-item-header">
+        <h4>{{ intent.get('name', 'Unnamed Intent') }}</h4>
+        <span style="color: #999; font-size: 12px;">Priority: {{ intent.get('priority', 10) }}</span>
+    </div>
+    <div class="intent-keywords">
+        {% for keyword in intent.get('keywords', []) %}
+        <span>{{ keyword }}</span>
+        {% endfor %}
+    </div>
+    <p style="color: #666; font-size: 13px; margin-bottom: 10px;">{{ intent.get('description', 'No description') }}</p>
+    <p style="color: #667eea; font-size: 13px; font-weight: 600;">Handler: {{ intent.get('handler', 'default') }}</p>
+    <div class="intent-actions" style="margin-top: 10px;">
+        <button class="btn btn-sm btn-delete" onclick="document.querySelector('[x-data]').__x.$data.deleteIntent({{ loop.index0 }})">Delete</button>
+    </div>
+</div>
+{% endfor %}
+{% endif %}

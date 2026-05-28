@@ -48,17 +48,58 @@ class MathTeacherSkill(BaseSkill):
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the math teacher skill.
 
-        Args:
-            input_data: Should contain 'message' key with the user's math question.
-
-        Returns:
-            Dict with:
-                - success: bool
-                - response: Formatted response string
-                - metadata: Additional math data
+        Supports three input modes:
+        - params mode (Planner-driven): {"params": {"operation": "journey_avg", ...}}
+          Dispatches to specialized journey_avg handler.
+        - expression mode (Planner-driven): {"params": {"expression": "..."}}
+          Passes expression directly to MathEngine.
+        - message mode (legacy): {"message": "..."}
+          Uses existing word-problem parsing.
         """
+        params = input_data.get("params", {})
         message = input_data.get("message", "")
 
+        operation = params.get("operation", "")
+
+        # Journey average: specialized handler for travel/distance queries
+        if operation == "journey_avg":
+            return self._execute_journey_avg(params)
+
+        expression = params.get("expression", "").strip()
+        if expression:
+            # Params-driven mode: pass clean expression to engine
+            try:
+                result = self.engine.solve(expression)
+                if result.answer and result.answer != "需要更多信息来解答此问题":
+                    response = self._format_response(result)
+                    return {
+                        "success": True,
+                        "response": response,
+                        "metadata": {
+                            "answer": result.answer,
+                            "concept": result.concept,
+                            "formula": result.formula,
+                            "expression": expression,
+                        },
+                    }
+                # Engine couldn't compute → return partial for LLM fallback
+                return {
+                    "success": False,
+                    "response": f"数学引擎无法直接计算表达式「{expression}」，需要更多信息",
+                    "metadata": {
+                        "expression": expression,
+                        "answer": result.answer,
+                        "concept": result.concept,
+                    },
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "response": f"计算出错：{str(e)}",
+                    "metadata": {"expression": expression, "error": str(e)},
+                }
+
+        # Legacy message mode
         if not message:
             return {
                 "success": False,
@@ -70,7 +111,6 @@ class MathTeacherSkill(BaseSkill):
             result = await asyncio.get_event_loop().run_in_executor(
                 None, self.engine.solve, message
             )
-
             response = self._format_response(result)
             return {
                 "success": True,
@@ -111,6 +151,122 @@ class MathTeacherSkill(BaseSkill):
         lines.append("\n\n有什么不明白的地方，欢迎继续提问！")
 
         return "\n".join(lines)
+
+    def _execute_journey_avg(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Compute average daily distance for a travel journey.
+
+        Receives parameters from the Planner which may include:
+        - total_km:    total distance (required)
+        - days:        number of days (from Time Converter, via placeholder resolution)
+        - remaining_km: distance remaining at midpoint (optional)
+        - expression:  pre-computed expression string (optional)
+
+        Returns a structured result with step-by-step journey analysis.
+        """
+        try:
+            total_km = float(params.get("total_km", 0))
+            days_str = params.get("days", "")
+            remaining_km = float(params.get("remaining_km", 0))
+            expression = params.get("expression", "").strip()
+
+            # Resolve days: could be a concrete number or a placeholder string
+            if days_str:
+                try:
+                    days = int(float(days_str))
+                except (ValueError, TypeError):
+                    # Still a placeholder string — use the expression approach
+                    days = None
+            else:
+                days = None
+
+            lines = []
+
+            if expression and not days_str:
+                # Expression provided but days not resolved: try to compute from expression
+                # e.g. "2080 / 6" — extract divisor if it looks like a day count
+                m = re.search(r"/\s*(\d+)", expression)
+                if m:
+                    days = int(m.group(1))
+
+            if total_km <= 0:
+                return {
+                    "success": False,
+                    "response": "无法计算：未检测到有效的总里程数据。",
+                    "metadata": {},
+                }
+
+            if days and days > 0:
+                avg = total_km / days
+                lines.append(
+                    f"📍 **行程计算结果**\n\n"
+                    f"**总里程：** {total_km:.0f} km\n"
+                    f"**总天数：** {days} 天\n"
+                    f"**平均每天：** {total_km:.0f} ÷ {days} = **{avg:.1f} km/天**"
+                )
+
+                if remaining_km > 0:
+                    first_leg_km = total_km - remaining_km
+                    first_leg_days = days - 1 if days > 1 else 1
+                    first_leg_avg = first_leg_km / first_leg_days if first_leg_days > 0 else 0
+                    second_leg_avg = remaining_km / 1 if days == 1 else remaining_km / 1
+
+                    lines.append(
+                        f"\n**分段分析：**\n"
+                        f"- 前半程：行驶 {first_leg_km:.0f} km"
+                    )
+                    if first_leg_days > 1:
+                        lines.append(
+                            f"  平均 {first_leg_avg:.1f} km/天"
+                        )
+                    lines.append(
+                        f"- 最后一天：行驶 {remaining_km:.0f} km"
+                    )
+
+                    if first_leg_avg > 0 and second_leg_avg > 0:
+                        if first_leg_avg > second_leg_avg:
+                            lines.append(
+                                f"\n结论：前半程走得更快（每天多 {first_leg_avg - second_leg_avg:.1f} km）"
+                            )
+                        else:
+                            lines.append(
+                                f"\n结论：最后一天走得更快（每天多 {second_leg_avg - first_leg_avg:.1f} km）"
+                            )
+            else:
+                # No days info: compute with expression only
+                if expression:
+                    lines.append(
+                        f"📍 **行程计算结果**\n\n"
+                        f"**总里程：** {total_km:.0f} km\n"
+                        f"根据表达式「{expression}」无法确定天数，"
+                        f"请提供完整的行程日期信息以便计算平均值。"
+                    )
+                else:
+                    lines.append(
+                        f"📍 **行程计算结果**\n\n"
+                        f"**总里程：** {total_km:.0f} km\n"
+                        f"无法确定行驶天数，无法计算平均值。"
+                    )
+
+            response = "\n".join(lines)
+
+            return {
+                "success": True,
+                "response": response,
+                "metadata": {
+                    "total_km": total_km,
+                    "days": days,
+                    "avg_km_per_day": round(avg, 1) if days and days > 0 else None,
+                    "remaining_km": remaining_km,
+                    "expression": expression,
+                },
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "response": f"行程计算出错：{str(e)}",
+                "metadata": {"params": params},
+            }
 
     def get_system_prompt(self) -> str:
         """Return the system prompt when this skill is activated."""
