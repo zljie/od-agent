@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from starlette.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from starlette.requests import Request
@@ -81,8 +81,13 @@ class IntentFormData(BaseModel):
 
 
 # Templates directory — always resolved relative to project root, not cwd
+import jinja2
+
 _templates_dir = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(_templates_dir))
+_jinja_env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(str(_templates_dir)),
+    autoescape=jinja2.select_autoescape(["html", "xml"]),
+)
 
 
 # Intent Configuration
@@ -535,17 +540,16 @@ def create_app() -> FastAPI:
     @app.get("/admin", response_class=HTMLResponse)
     async def admin_ui(request: Request):
         """Serve the admin configuration page."""
-        return templates.TemplateResponse("admin/base.html", {"request": request})
+        tmpl = _jinja_env.get_template("admin/base.html")
+        return HTMLResponse(tmpl.render(request=request))
 
     # HTMX partial routes for intent management
     @app.get("/admin/intents/list", response_class=HTMLResponse)
     async def intents_list_partial(request: Request):
         """Return intent list as HTML fragment for HTMX refresh."""
         intents = load_intent_config()
-        return templates.TemplateResponse("admin/partials/intent_list.html", {
-            "request": request,
-            "intents": intents,
-        })
+        tmpl = _jinja_env.get_template("admin/partials/intent_list.html")
+        return HTMLResponse(tmpl.render(request=request, intents=intents))
 
     @app.post("/admin/intents/add", response_class=HTMLResponse)
     async def add_intent_partial(request: Request, intent: IntentFormData):
@@ -553,10 +557,8 @@ def create_app() -> FastAPI:
         intents = load_intent_config()
         intents.append(intent.model_dump())
         save_intent_config(intents)
-        return templates.TemplateResponse("admin/partials/intent_list.html", {
-            "request": request,
-            "intents": intents,
-        })
+        tmpl = _jinja_env.get_template("admin/partials/intent_list.html")
+        return HTMLResponse(tmpl.render(request=request, intents=intents))
 
     @app.delete("/admin/intents/{index}", response_class=HTMLResponse)
     async def delete_intent_partial(request: Request, index: int):
@@ -565,10 +567,8 @@ def create_app() -> FastAPI:
         if 0 <= index < len(intents):
             intents.pop(index)
             save_intent_config(intents)
-        return templates.TemplateResponse("admin/partials/intent_list.html", {
-            "request": request,
-            "intents": intents,
-        })
+        tmpl = _jinja_env.get_template("admin/partials/intent_list.html")
+        return HTMLResponse(tmpl.render(request=request, intents=intents))
 
     # Welcome page
     @app.get("/")
