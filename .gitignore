@@ -25,3 +25,6 @@ htmlcov/
 
 # Logs
 *.log
+
+# Documentation (not committed)
+docs/
