@@ -1,6 +1,7 @@
 """Customer service agent implementation using AgentScope ReAct Agent."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -268,11 +269,20 @@ class CustomerServiceAgent:
 
     async def chat(self, user_input: str) -> str:
         """Process user input and return agent response."""
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{ts} [CHAT] (non-streaming) user_input={user_input}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [CHAT] model={self.model.model}, thinking_enable={self.model.parameters.thinking_enable}, reasoning_effort={self.model.parameters.reasoning_effort}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [CHAT] system_prompt={self.system_prompt[:100]}...")
+
         # Run the full four-phase pipeline: Temporal → Intent → Plan → Execute
         pipeline_result = await self._skill_manager.run_pipeline(user_input)
         decision = pipeline_result.get("decision", "")
         raw_response = pipeline_result.get("response", "")
         temporal = pipeline_result.get("temporal")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [CHAT] pipeline decision={decision}")
 
         # Non-execution decisions: respond directly
         if decision in ("reject", "clarify", "hitl_confirm", "slot_missing"):
@@ -336,12 +346,24 @@ class CustomerServiceAgent:
 
         # v2.0: use UserMsg factory and Agent.reply()
         msg = UserMsg(name="user", content=content)
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{ts} [LLM CHAT] (non-streaming) calling DeepSeek model={self.model.model}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [LLM CHAT] thinking_enable={self.model.parameters.thinking_enable}, reasoning_effort={self.model.parameters.reasoning_effort}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [LLM CHAT] system_prompt={self.system_prompt[:100]}...")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [LLM CHAT] user_content={content[:300]}...")
         try:
             response = await self.agent.reply(msg)
             # v2.0: response.content is a list of ContentBlock; use get_text_content()
             text = response.get_text_content(separator="\n")
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"{ts} [LLM CHAT] response={text[:500] if text else '(empty)'}...")
             return text if text else ""
         except Exception as e:
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"{ts} [LLM CHAT] error: {e}")
             return f"Error calling DeepSeek API: {str(e)}"
 
     async def chat_stream(self, user_input: str):
@@ -357,17 +379,32 @@ class CustomerServiceAgent:
             done,
         )
 
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{ts} [CHAT STREAM] user_input={user_input}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [CHAT STREAM] model={self.model.model}, thinking_enable={self.model.parameters.thinking_enable}, reasoning_effort={self.model.parameters.reasoning_effort}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [CHAT STREAM] system_prompt={self.system_prompt[:100]}...")
+
         async for event in self._skill_manager.run_pipeline_stream(user_input):
             ev_type = event.get("event", "")
 
             # Private routing events — not forwarded to the SSE client
             if ev_type in ("_decision", "_delegate_llm"):
                 if ev_type == "_delegate_llm":
+                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    print(f"{ts} [CHAT STREAM] delegating to LLM (DeepSeek streaming)")
                     async for chunk in self._llm_chat_stream(user_input):
+                        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                        print(f"{ts} [LLM STREAM CHUNK] event={chunk.get('event')}, content={chunk.get('content', '')[:200]}")
                         yield chunk
+                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    print(f"{ts} [LLM STREAM] finished")
                     yield done()
                 continue
 
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"{ts} [CHAT STREAM YIELD] event={ev_type}, content={event.get('content', event.get('thinking', ''))[:200]}")
             yield event
 
     async def _llm_chat_stream(self, user_input: str, skill_context: Optional[str] = None):
@@ -415,36 +452,88 @@ class CustomerServiceAgent:
             user_content = "".join(parts)
 
         msg = UserMsg(name="user", content=user_content)
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{ts} [LLM CHAT STREAM] calling DeepSeek model={self.model.model}, thinking_enable={self.model.parameters.thinking_enable}, reasoning_effort={self.model.parameters.reasoning_effort}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [LLM CHAT STREAM] system_prompt={self.system_prompt[:100]}...")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [LLM CHAT STREAM] user_content={user_content[:300]}...")
         try:
             full_think_parts: list[str] = []
             full_text_parts: list[str] = []
 
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"{ts} [LLM STREAM] starting reply_stream, model={self.model.model}")
+            iter_count = 0
             async for event in self.agent.reply_stream(msg):
+                iter_count += 1
                 # v2.0: AgentEvent objects are yielded during streaming
                 from agentscope.message import ThinkingBlock, TextBlock
+                event_type = type(event).__name__
                 if isinstance(event, ThinkingBlock):
                     full_think_parts.append(event.thinking)
+                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    print(f"{ts} [LLM STREAM RAW] ThinkingBlock: {event.thinking[:100]}...")
                 elif isinstance(event, TextBlock):
                     full_text_parts.append(event.text)
+                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    print(f"{ts} [LLM STREAM RAW] TextBlock: {event.text[:100]}...")
+                else:
+                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    print(f"{ts} [LLM STREAM RAW] unknown event type={event_type}, repr={repr(event)[:200]}")
+
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"{ts} [LLM STREAM] reply_stream iteration count={iter_count}")
 
             # The final Msg is auto-consumed by reply_stream - use state.context for final text
+            # last_msg.content may contain both ThinkingBlock and TextBlock — extract both
             if self.agent.state.context:
                 last_msg = self.agent.state.context[-1]
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [LLM STREAM] last_msg content blocks: {len(last_msg.content)} blocks")
+                for idx, block in enumerate(last_msg.content):
+                    block_type = type(block).__name__
+                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    print(f"{ts} [LLM STREAM] block[{idx}] type={block_type}")
+                    if hasattr(block, "thinking"):
+                        full_think_parts.append(block.thinking)
+                        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                        print(f"{ts} [LLM STREAM] block[{idx}] thinking: {block.thinking[:100]}...")
+                    elif hasattr(block, "text"):
+                        full_text_parts.append(block.text)
+                        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                        print(f"{ts} [LLM STREAM] block[{idx}] text: {block.text[:100]}...")
+                    else:
+                        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                        print(f"{ts} [LLM STREAM] block[{idx}] unknown: {repr(block)[:200]}")
+                # Also get plain text as fallback
                 last_text = last_msg.get_text_content(separator="\n")
                 if last_text:
-                    full_text_parts.append(last_text)
+                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    print(f"{ts} [LLM STREAM] get_text_content fallback: {last_text[:100]}...")
+            else:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [LLM STREAM] agent.state.context is empty")
 
             combined_think = "".join(full_think_parts)
             combined_text = "".join(full_text_parts)
 
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"{ts} [LLM CHAT STREAM] combined_think length={len(combined_think)}, combined_text length={len(combined_text)}")
             if combined_think:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [LLM CHAT STREAM] yielding think: {combined_think[:500]}...")
                 yield think(combined_think)
                 yield think_done()
 
             if combined_text:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [LLM CHAT STREAM] yielding content: {combined_text[:500]}...")
                 yield content(combined_text)
 
         except Exception as e:
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"{ts} [LLM CHAT STREAM] error: {e}")
             yield content(f"Error calling DeepSeek API: {str(e)}")
 
 

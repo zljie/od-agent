@@ -3,6 +3,7 @@
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -132,11 +133,14 @@ class SemanticConfigUpdate(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    print("🚀 Starting Customer Service Agent...")
+    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    print(f"{ts} 🚀 Starting Customer Service Agent...")
     agent = get_agent()
-    print(f"📝 Agent initialized with system prompt: {agent.system_prompt[:50]}...")
+    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    print(f"{ts} 📝 Agent initialized with system prompt: {agent.system_prompt[:50]}...")
     yield
-    print("🛑 Shutting down Customer Service Agent...")
+    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    print(f"{ts} 🛑 Shutting down Customer Service Agent...")
 
 
 def create_app() -> FastAPI:
@@ -191,6 +195,18 @@ def create_app() -> FastAPI:
         """
         agent = get_agent()
 
+        # Get model config for logging
+        config = load_agent_config()
+        model_cfg = config.get("model_config", {})
+        mc = get_model_config()
+        mc.provider_id = model_cfg.get("provider_id", mc.provider_id)
+        mc.model_name = model_cfg.get("model_name", mc.model_name)
+        mc.base_url = model_cfg.get("base_url", mc.base_url)
+        mc.temperature = model_cfg.get("temperature", mc.temperature)
+        mc.max_tokens = model_cfg.get("max_tokens", mc.max_tokens)
+        mc.thinking = model_cfg.get("thinking", mc.thinking)
+        mc.thinking_budget = model_cfg.get("thinking_budget", mc.thinking_budget)
+
         user_message: Optional[str] = None
         if request.message:
             user_message = request.message
@@ -206,10 +222,25 @@ def create_app() -> FastAPI:
         if not user_message:
             return ChatResponse(response="No message provided", session_id=request.session_id)
 
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{ts} [CHAT REQUEST] stream={request.stream}, session_id={request.session_id}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [MODEL] provider={mc.provider_id}, model={mc.model_name}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [THINKING] enabled={mc.thinking}, budget={mc.thinking_budget}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [SYSTEM PROMPT] {mc.provider_id}/{mc.model_name} -> {agent.system_prompt[:100]}...")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [USER MESSAGE] {user_message}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} {'='*60}\n")
+
         if request.stream:
             return EventSourceResponse(agent.chat_stream(user_message))
 
         response = await agent.chat(user_message)
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{ts} [CHAT RESPONSE] (non-streaming) length={len(response)}, response={response[:500]}...")
         return ChatResponse(
             response=response,
             session_id=request.session_id,
@@ -234,6 +265,12 @@ def create_app() -> FastAPI:
             return {"text": "No message provided"}
 
         agent = get_agent()
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{ts} [CHAT/STREAM ALIAS] user_message={user_message}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [CHAT/STREAM ALIAS] model={agent.model.model}, thinking_enable={agent.model.parameters.thinking_enable}, reasoning_effort={agent.model.parameters.reasoning_effort}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [CHAT/STREAM ALIAS] system_prompt={agent.system_prompt[:100]}...")
         return EventSourceResponse(agent.chat_stream(user_message))
 
     # Process endpoint (AgentApp style)
@@ -244,7 +281,14 @@ def create_app() -> FastAPI:
         messages = [msg.content for msg in request.input if msg.role == "user"]
         if not messages:
             raise HTTPException(status_code=400, detail="No user message found")
-        response = await agent.chat(messages[-1])
+        user_msg = messages[-1]
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{ts} [PROCESS] user_message={user_msg}")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [PROCESS] model={agent.model.model}, thinking_enable={agent.model.parameters.thinking_enable}, reasoning_effort={agent.model.parameters.reasoning_effort}")
+        response = await agent.chat(user_msg)
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"{ts} [PROCESS] response={response[:500] if response else '(empty)'}...")
         return {
             "output": response,
             "status": "completed",
