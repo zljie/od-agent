@@ -80,8 +80,9 @@ class IntentFormData(BaseModel):
     priority: int = 10
 
 
-# Jinja2 templates - initialized at module level
-templates = Jinja2Templates(directory="templates")
+# Templates directory — always resolved relative to project root, not cwd
+_templates_dir = Path(__file__).parent.parent / "templates"
+templates = Jinja2Templates(directory=str(_templates_dir))
 
 
 # Intent Configuration
