@@ -191,7 +191,7 @@ class GraphQLGenerator:
         desc = ""
         if desc_parts:
             joined = "\n".join(desc_parts)
-            desc = f'  """{joined.replace('"', '\\"')}"""\n  '
+            desc = f"  \"\"\"{joined.replace('\"', '\\\"')}\"\"\"\n  "
 
         required = "!" if f.required else ""
         list_marker = "[]" if f.is_list else ""
