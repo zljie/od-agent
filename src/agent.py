@@ -1,15 +1,12 @@
 """Customer service agent implementation using AgentScope ReAct Agent."""
 
 import json
-import os
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from agentscope.agent import ReActAgent
-from agentscope.formatter import OpenAIChatFormatter
-from agentscope.memory import InMemoryMemory
-from agentscope.message import Msg
+from agentscope.agent import Agent, ReActConfig
+from agentscope.credential import OpenAICredential
+from agentscope.message import UserMsg
 from agentscope.model import OpenAIChatModel
 from dotenv import load_dotenv
 
@@ -75,7 +72,7 @@ def save_agent_config(config: Dict[str, Any]) -> None:
 
 
 class CustomerServiceAgent:
-    """Customer service dialogue agent powered by AgentScope ReAct Agent."""
+    """Customer service dialogue agent powered by AgentScope Agent."""
 
     def __init__(
         self,
@@ -110,22 +107,31 @@ class CustomerServiceAgent:
         # Use provider-aware config to build model kwargs
         model_kwargs = model_config.to_dict()
 
-        # Initialize OpenAI-compatible model
-        self.model = OpenAIChatModel(
+        # Initialize OpenAI-compatible model (v2.0 API)
+        credential = OpenAICredential(
             api_key=model_config.api_key,
-            model_name=model_config.model_name,
-            client_kwargs=model_kwargs["client_kwargs"],
-            generate_kwargs=model_kwargs["generate_kwargs"],
+            base_url=model_kwargs.get("base_url"),
+        )
+        params = OpenAIChatModel.Parameters(
+            temperature=model_kwargs.get("temperature"),
+            max_tokens=model_kwargs.get("max_tokens"),
+            top_p=model_kwargs.get("top_p"),
+            thinking_enable=model_kwargs.get("thinking_enable", False),
+            reasoning_effort=model_kwargs.get("reasoning_effort"),
+        )
+        self.model = OpenAIChatModel(
+            credential=credential,
+            model=model_config.model_name,
+            parameters=params,
             stream=True,
         )
-        
-        # Initialize AgentScope ReAct Agent
-        self.agent = ReActAgent(
+
+        # Initialize AgentScope Agent (v2.0 API)
+        self.agent = Agent(
             name=self.agent_name,
-            sys_prompt=self.system_prompt,
+            system_prompt=self.system_prompt,
             model=self.model,
-            formatter=OpenAIChatFormatter(),
-            memory=InMemoryMemory(),
+            react_config=ReActConfig(),
         )
 
         # Initialize skill manager
@@ -257,7 +263,7 @@ class CustomerServiceAgent:
 
     async def reset_history(self) -> None:
         """Clear conversation history."""
-        await self.agent.memory.clear()
+        self.agent.state.context.clear()
         self._active_skill = None
 
     async def chat(self, user_input: str) -> str:
@@ -328,41 +334,13 @@ class CustomerServiceAgent:
             )
             content = "".join(parts)
 
-        msg = Msg(
-            name="user",
-            content=content,
-            role="user",
-        )
+        # v2.0: use UserMsg factory and Agent.reply()
+        msg = UserMsg(name="user", content=content)
         try:
-            response = await self.agent(msg)
-            resp_content = response.content
-            text_parts = []
-
-            # Extract from memory history (all rounds, for thinking + text)
-            for entry in self.agent.memory.content:
-                hist_msg = entry[0] if isinstance(entry, tuple) else entry
-                if not hasattr(hist_msg, "content"):
-                    continue
-                mc = hist_msg.content
-                if isinstance(mc, str):
-                    text_parts.append(mc)
-                elif isinstance(mc, list):
-                    for block in mc:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
-                        elif isinstance(block, str):
-                            text_parts.append(block)
-
-            # Also scan final reply_msg blocks for text not yet covered
-            if isinstance(resp_content, list):
-                for block in resp_content:
-                    if isinstance(block, dict):
-                        if block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-
-            return "".join(text_parts)
+            response = await self.agent.reply(msg)
+            # v2.0: response.content is a list of ContentBlock; use get_text_content()
+            text = response.get_text_content(separator="\n")
+            return text if text else ""
         except Exception as e:
             return f"Error calling DeepSeek API: {str(e)}"
 
@@ -395,12 +373,8 @@ class CustomerServiceAgent:
     async def _llm_chat_stream(self, user_input: str, skill_context: Optional[str] = None):
         """Streaming LLM chat: yields SSE events from the model response.
 
-        AgentScope's response.content is a list of ContentBlocks:
-        - ThinkingBlock: {"type": "thinking", "thinking": "..."}
-        - TextBlock:    {"type": "text", "text": "..."}
-        - ToolUseBlock: {"type": "tool_use", ...} — skipped, ReAct loop handles internally
-
-        We emit think + think_done for ThinkingBlocks, content for TextBlocks.
+        v2.0 API: Agent.reply_stream() yields AgentEvent chunks + final Msg.
+        We emit think + think_done for ThinkingBlock events, content for TextBlock.
         """
         from .sse_stream import (
             think,
@@ -440,58 +414,29 @@ class CustomerServiceAgent:
             )
             user_content = "".join(parts)
 
-        msg = Msg(name="user", content=user_content, role="user")
+        msg = UserMsg(name="user", content=user_content)
         try:
-            response = await self.agent(msg)
-            msg_content = response.content
-
-            # Extract thinking from ALL rounds in memory history.
-            # InMemoryMemory stores (Msg, list[str]) tuples, not plain Msg list.
             full_think_parts: list[str] = []
             full_text_parts: list[str] = []
 
-            for entry in self.agent.memory.content:
-                # InMemoryMemory stores (Msg, list[str]) tuples; other impls may use list[Msg]
-                hist_msg = entry[0] if isinstance(entry, tuple) else entry
-                if not hasattr(hist_msg, "content"):
-                    continue
-                mc = hist_msg.content
-                if isinstance(mc, str):
-                    full_text_parts.append(mc)
-                elif isinstance(mc, list):
-                    for block in mc:
-                        if isinstance(block, dict):
-                            if block.get("type") == "thinking":
-                                full_think_parts.append(block.get("thinking", ""))
-                            elif block.get("type") == "text":
-                                full_text_parts.append(block.get("text", ""))
-                        elif isinstance(block, str):
-                            full_text_parts.append(block)
+            async for event in self.agent.reply_stream(msg):
+                # v2.0: AgentEvent objects are yielded during streaming
+                from agentscope.message import ThinkingBlock, TextBlock
+                if isinstance(event, ThinkingBlock):
+                    full_think_parts.append(event.thinking)
+                elif isinstance(event, TextBlock):
+                    full_text_parts.append(event.text)
 
-            # Deduplicate: last reply_msg blocks may already be in history
-            # (memory stores every reasoning message). Check if the final reply
-            # has content not yet yielded.
-            if isinstance(msg_content, list):
-                reply_think_parts: list[str] = []
-                reply_text_parts: list[str] = []
-                for block in msg_content:
-                    if isinstance(block, dict):
-                        if block.get("type") == "thinking":
-                            reply_think_parts.append(block.get("thinking", ""))
-                        elif block.get("type") == "text":
-                            reply_text_parts.append(block.get("text", ""))
+            # The final Msg is auto-consumed by reply_stream - use state.context for final text
+            if self.agent.state.context:
+                last_msg = self.agent.state.context[-1]
+                last_text = last_msg.get_text_content(separator="\n")
+                if last_text:
+                    full_text_parts.append(last_text)
 
-                # Merge: history thinking + reply thinking (reply may have latest)
-                combined_think = "".join(full_think_parts)
-                combined_text = "".join(reply_text_parts) or "".join(full_text_parts)
-            elif isinstance(msg_content, str):
-                combined_think = "".join(full_think_parts)
-                combined_text = msg_content
-            else:
-                combined_think = "".join(full_think_parts)
-                combined_text = ""
+            combined_think = "".join(full_think_parts)
+            combined_text = "".join(full_text_parts)
 
-            # Emit SSE events in spec order: think → think_done → content
             if combined_think:
                 yield think(combined_think)
                 yield think_done()
