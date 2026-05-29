@@ -24,8 +24,9 @@ class TestCustomerServiceAgent:
         assert hasattr(agent, 'model')
         assert agent.model is not None
 
-    def test_reset_history(self):
+    @pytest.mark.asyncio
+    async def test_reset_history(self):
         """Test conversation history can be reset."""
         agent = CustomerServiceAgent()
-        agent.reset_history()
+        await agent.reset_history()
         assert agent.agent.memory is not None

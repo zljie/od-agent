@@ -303,7 +303,7 @@ def create_app() -> FastAPI:
     async def reset_conversation():
         """Reset agent conversation history."""
         agent = get_agent()
-        agent.reset_history()
+        await agent.reset_history()
         return {"status": "success", "message": "Conversation history cleared"}
 
     # Model Management Endpoints

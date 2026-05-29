@@ -255,9 +255,9 @@ class CustomerServiceAgent:
             classifier, binding_table, planner, temporal_parser
         )
 
-    def reset_history(self) -> None:
+    async def reset_history(self) -> None:
         """Clear conversation history."""
-        self.agent.memory.clear()
+        await self.agent.memory.clear()
         self._active_skill = None
 
     async def chat(self, user_input: str) -> str:
