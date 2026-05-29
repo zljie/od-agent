@@ -459,77 +459,66 @@ class CustomerServiceAgent:
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"{ts} [LLM CHAT STREAM] user_content={user_content[:300]}...")
         try:
-            full_think_parts: list[str] = []
-            full_text_parts: list[str] = []
-
             ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             print(f"{ts} [LLM STREAM] starting reply_stream, model={self.model.model}")
-            iter_count = 0
+
+            # agentscope streams ThinkingBlockDeltaEvent / TextBlockDeltaEvent,
+            # NOT ThinkingBlock / TextBlock (those only exist in the final Msg).
+            from agentscope.event import (
+                ThinkingBlockStartEvent,
+                ThinkingBlockDeltaEvent,
+                ThinkingBlockEndEvent,
+                TextBlockStartEvent,
+                TextBlockDeltaEvent,
+                TextBlockEndEvent,
+            )
+
+            think_buf: list[str] = []
+            text_buf: list[str] = []
+            in_thinking = False
+            in_text = False
+            think_yielded = False
+            content_yielded = False
+
             async for event in self.agent.reply_stream(msg):
-                iter_count += 1
-                # v2.0: AgentEvent objects are yielded during streaming
-                from agentscope.message import ThinkingBlock, TextBlock
-                event_type = type(event).__name__
-                if isinstance(event, ThinkingBlock):
-                    full_think_parts.append(event.thinking)
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    print(f"{ts} [LLM STREAM RAW] ThinkingBlock: {event.thinking[:100]}...")
-                elif isinstance(event, TextBlock):
-                    full_text_parts.append(event.text)
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    print(f"{ts} [LLM STREAM RAW] TextBlock: {event.text[:100]}...")
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                if isinstance(event, ThinkingBlockStartEvent):
+                    in_thinking = True
+                    print(f"{ts} [LLM STREAM] ThinkingBlockStart block_id={event.block_id}")
+                elif isinstance(event, ThinkingBlockDeltaEvent):
+                    think_buf.append(event.delta)
+                    yield think(event.delta)
+                    think_yielded = True
+                elif isinstance(event, ThinkingBlockEndEvent):
+                    in_thinking = False
+                    print(f"{ts} [LLM STREAM] ThinkingBlockEnd block_id={event.block_id}, think_buf len={len(''.join(think_buf))}")
+                elif isinstance(event, TextBlockStartEvent):
+                    in_text = True
+                    print(f"{ts} [LLM STREAM] TextBlockStart block_id={event.block_id}")
+                elif isinstance(event, TextBlockDeltaEvent):
+                    text_buf.append(event.delta)
+                    yield content(event.delta)
+                    content_yielded = True
+                elif isinstance(event, TextBlockEndEvent):
+                    in_text = False
+                    print(f"{ts} [LLM STREAM] TextBlockEnd block_id={event.block_id}, text_buf len={len(''.join(text_buf))}")
                 else:
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    print(f"{ts} [LLM STREAM RAW] unknown event type={event_type}, repr={repr(event)[:200]}")
+                    # ModelCallEndEvent, ReplyEndEvent, etc. — ignore
+                    pass
 
-            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-            print(f"{ts} [LLM STREAM] reply_stream iteration count={iter_count}")
-
-            # The final Msg is auto-consumed by reply_stream - use state.context for final text
-            # last_msg.content may contain both ThinkingBlock and TextBlock — extract both
-            if self.agent.state.context:
+            # Fallback: if no Delta events arrived, pull from state.context
+            if not think_yielded and not content_yielded and self.agent.state.context:
                 last_msg = self.agent.state.context[-1]
-                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                print(f"{ts} [LLM STREAM] last_msg content blocks: {len(last_msg.content)} blocks")
-                for idx, block in enumerate(last_msg.content):
-                    block_type = type(block).__name__
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    print(f"{ts} [LLM STREAM] block[{idx}] type={block_type}")
+                for block in last_msg.content:
                     if hasattr(block, "thinking"):
-                        full_think_parts.append(block.thinking)
-                        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                        print(f"{ts} [LLM STREAM] block[{idx}] thinking: {block.thinking[:100]}...")
+                        yield think(block.thinking)
+                        think_yielded = True
                     elif hasattr(block, "text"):
-                        full_text_parts.append(block.text)
-                        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                        print(f"{ts} [LLM STREAM] block[{idx}] text: {block.text[:100]}...")
-                    else:
-                        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                        print(f"{ts} [LLM STREAM] block[{idx}] unknown: {repr(block)[:200]}")
-                # Also get plain text as fallback
-                last_text = last_msg.get_text_content(separator="\n")
-                if last_text:
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    print(f"{ts} [LLM STREAM] get_text_content fallback: {last_text[:100]}...")
-            else:
-                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                print(f"{ts} [LLM STREAM] agent.state.context is empty")
+                        yield content(block.text)
+                        content_yielded = True
 
-            combined_think = "".join(full_think_parts)
-            combined_text = "".join(full_text_parts)
-
-            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-            print(f"{ts} [LLM CHAT STREAM] combined_think length={len(combined_think)}, combined_text length={len(combined_text)}")
-            if combined_think:
-                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                print(f"{ts} [LLM CHAT STREAM] yielding think: {combined_think[:500]}...")
-                yield think(combined_think)
+            if think_yielded:
                 yield think_done()
-
-            if combined_text:
-                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                print(f"{ts} [LLM CHAT STREAM] yielding content: {combined_text[:500]}...")
-                yield content(combined_text)
 
         except Exception as e:
             ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]

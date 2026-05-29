@@ -597,7 +597,9 @@ def main():
     """Run the application."""
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host=host, port=port)
+    loop = os.getenv("UVICORN_LOOP", "asyncio")
+    http = os.getenv("UVICORN_HTTP", "h11")
+    uvicorn.run(app, host=host, port=port, loop=loop, http=http)
 
 
 if __name__ == "__main__":
