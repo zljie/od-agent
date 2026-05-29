@@ -52,44 +52,33 @@ class ModelConfig:
         return get_provider(self.provider_id)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Build kwargs dict for OpenAIChatModel / AgentScope."""
+        """Build kwargs dict for v2.0 OpenAIChatModel.
+
+        v2.0 uses credential + parameters instead of client_kwargs/generate_kwargs.
+        """
         provider = self.provider
         base_url = self.base_url or (provider.default_base_url if provider else "")
 
-        generate_kwargs: Dict[str, Any] = {
+        result: Dict[str, Any] = {
+            "base_url": base_url,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
-            "top_p": self.top_p,
-            "presence_penalty": self.presence_penalty,
-            "frequency_penalty": self.frequency_penalty,
+            "top_p": self.top_p if self.top_p != 1.0 else None,
+            "seed": self.seed,
+            "thinking_enable": False,
+            "reasoning_effort": None,
         }
-        if self.seed is not None:
-            generate_kwargs["seed"] = self.seed
 
-        # Apply thinking params if enabled and provider supports it
         if self.thinking and provider and provider.supports_thinking:
-            thinking_params = dict(provider.thinking_param)
+            result["thinking_enable"] = True
+            effort = "high"
+            if self.thinking_budget <= 1000:
+                effort = "medium"
+            elif self.thinking_budget <= 2000:
+                effort = "low"
+            result["reasoning_effort"] = effort
 
-            # Inject thinking_budget into extra_body if present
-            if "extra_body" in thinking_params:
-                eb = dict(thinking_params["extra_body"])
-                # Replace reasoning_effort with budget
-                eb["reasoning_effort"] = "high"
-                thinking_params["extra_body"] = eb
-
-            generate_kwargs.update(thinking_params)
-
-            # Disable params that conflict with thinking mode
-            for param in (provider.thinking_disabled_params or []):
-                generate_kwargs.pop(param, None)
-
-        return {
-            "model_type": "openai_chat",
-            "model_name": self.model_name,
-            "api_key": self.api_key,
-            "client_kwargs": {"base_url": base_url},
-            "generate_kwargs": generate_kwargs,
-        }
+        return result
 
     def to_json_dict(self) -> Dict[str, Any]:
         """JSON-serializable config for API responses."""
