@@ -11,6 +11,7 @@ class BaseSkill(ABC):
     description: str = ""
     keywords: List[str] = []
     priority: int = 10
+    mcp_type: str = "skill"   # SSE tool_call type: "skill" | "mcp" | "rag"
 
     @abstractmethod
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:

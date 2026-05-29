@@ -34,6 +34,11 @@
                 :class="{ 'active': activeTab === 'skills' }"
                 @click="switchTab('skills')"
             >Skills</button>
+            <button
+                class="tab-btn"
+                :class="{ 'active': activeTab === 'semantic' }"
+                @click="switchTab('semantic')"
+            >Semantic</button>
         </div>
 
         <!-- Tab: Configuration -->
@@ -77,6 +82,11 @@
         <!-- Tab: Skills -->
         <div id="tab-skills" x-show="activeTab === 'skills'" x-transition>
             {% include 'admin/skills.html' %}
+        </div>
+
+        <!-- Tab: Semantic -->
+        <div id="tab-semantic" x-show="activeTab === 'semantic'" x-transition>
+            {% include 'admin/semantic.html' %}
         </div>
 
         <!-- Fixed Chat Widget -->
@@ -150,6 +160,17 @@
                 testMessage: '',
                 testResult: null,
 
+                // Semantic tab state
+                semanticConfig: { yaml_path: '', graphql_endpoint: '', use_demo: true },
+                semanticSchema: '',
+                semanticTools: [],
+                semanticTestQuery: '',
+                semanticTestResults: [],
+                semanticSearchError: '',
+                semanticSearchLoading: false,
+                semanticStatusMsg: '',
+                semanticStatusType: 'success',
+
                 // Computed helpers
                 get currentProvider() {
                     return this.providers.find(p => p.id === this.providerId) || null;
@@ -163,12 +184,17 @@
                 init() {
                     this.loadConfig();
                     this.loadSkills();
+                    this.loadSemanticConfig();
                 },
 
                 switchTab(tab) {
                     this.activeTab = tab;
                     if (tab === 'intents') {
                         this.loadIntents();
+                    }
+                    if (tab === 'semantic') {
+                        this.loadSemanticSchema();
+                        this.loadSemanticTools();
                     }
                 },
 
@@ -396,6 +422,108 @@
                         }
                     } catch (error) {
                         this.testResult = 'Detection failed: ' + error.message;
+                    }
+                },
+
+                // --- Semantic tab methods ---
+                async loadSemanticConfig() {
+                    try {
+                        const response = await fetch('/semantic/config');
+                        this.semanticConfig = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load semantic config:', error);
+                    }
+                },
+
+                async saveSemanticConfig() {
+                    this.isSaving = true;
+                    this.semanticStatusMsg = '';
+                    try {
+                        const response = await fetch('/semantic/config', {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                yaml_path: this.semanticConfig.yaml_path || '',
+                                graphql_endpoint: this.semanticConfig.graphql_endpoint || '',
+                                use_demo: this.semanticConfig.use_demo,
+                            })
+                        });
+                        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                        this.semanticStatusMsg = 'Semantic config saved!';
+                        this.semanticStatusType = 'success';
+                        await this.loadSemanticConfig();
+                        await this.reloadSemanticBackend();
+                    } catch (error) {
+                        this.semanticStatusMsg = 'Failed to save: ' + error.message;
+                        this.semanticStatusType = 'error';
+                    } finally {
+                        this.isSaving = false;
+                    }
+                },
+
+                async reloadSemanticBackend() {
+                    this.isRefreshing = true;
+                    this.semanticStatusMsg = '';
+                    try {
+                        const response = await fetch('/semantic/reload', {method: 'POST'});
+                        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                        this.semanticStatusMsg = 'Semantic backend reloaded!';
+                        this.semanticStatusType = 'success';
+                        await this.loadSemanticSchema();
+                        await this.loadSemanticTools();
+                    } catch (error) {
+                        this.semanticStatusMsg = 'Failed to reload: ' + error.message;
+                        this.semanticStatusType = 'error';
+                    } finally {
+                        this.isRefreshing = false;
+                    }
+                },
+
+                async loadSemanticSchema() {
+                    try {
+                        const response = await fetch('/semantic/schema');
+                        const data = await response.json();
+                        this.semanticSchema = data.schema || '';
+                    } catch (error) {
+                        console.error('Failed to load schema:', error);
+                    }
+                },
+
+                async loadSemanticTools() {
+                    try {
+                        const response = await fetch('/semantic/tools');
+                        const data = await response.json();
+                        this.semanticTools = data.tools || [];
+                    } catch (error) {
+                        console.error('Failed to load tools:', error);
+                    }
+                },
+
+                async testSemanticSearch() {
+                    const query = this.semanticTestQuery.trim();
+                    if (!query) {
+                        this.semanticSearchError = 'Please enter a query';
+                        return;
+                    }
+                    this.semanticSearchLoading = true;
+                    this.semanticSearchError = '';
+                    this.semanticTestResults = [];
+                    try {
+                        const response = await fetch('/semantic/search', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({query: query})
+                        });
+                        const result = await response.json();
+                        if (result.success && result.metadata && result.metadata.all_results) {
+                            this.semanticTestResults = result.metadata.all_results;
+                        } else {
+                            this.semanticSearchError = result.response || 'No results found';
+                        }
+                    } catch (error) {
+                        this.semanticSearchError = 'Search failed: ' + error.message;
+                    } finally {
+                        this.semanticSearchLoading = false;
                     }
                 },
 

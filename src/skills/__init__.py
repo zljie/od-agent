@@ -2,6 +2,7 @@
 
 from .base import BaseSkill
 from .math_teacher import MathTeacherSkill
+from .semantic_skill import SemanticSkill
 from .skill_registry import SkillRegistry
 from .task_executor import TaskExecutor
 from .time_converter import TimeConverterSkill
@@ -13,6 +14,7 @@ __all__ = [
     "BaseSkill",
     "MathTeacherSkill",
     "TimeConverterSkill",
+    "SemanticSkill",
     "SkillManager",
     "get_skill_manager",
     "reload_skill_manager",

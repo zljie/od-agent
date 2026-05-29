@@ -171,7 +171,6 @@ class RuleBasedPlanner:
             "day_of_week": "day_of_week",
             "timezone": "timezone",
             "math": "math",
-            "journey_avg": "journey_avg",
         }
         if "operation" not in entities:
             entities.setdefault(
@@ -185,10 +184,6 @@ class RuleBasedPlanner:
         def next_id() -> str:
             node_counter[0] += 1
             return f"step_{node_counter[0]}"
-
-        # For journey_avg, inject resolved dates from temporal context into entities
-        if temporal and classification.intent_type == "journey_avg":
-            entities = self._inject_temporal_dates(entities, temporal)
 
         if binding.depends_on_skills:
             # Bootstrap tasks: one per dependency, producing {skill_id: metadata}
@@ -253,21 +248,19 @@ class RuleBasedPlanner:
         Maps skill names to the parameters they need to produce the fields
         required by downstream tasks.
         """
-        # Normalize skill name: "Time Converter" → "Time_Converter"
-        norm = dep_skill.replace(" ", "_")
-
         if dep_skill in ("Time Converter", "Time_Converter"):
-            # For journey scenarios, Time Converter needs to compute the date range
             entities = classification.entities or {}
-            # Infer start/end from temporal context if available
-            if temporal:
-                start_label, end_label = self._infer_date_labels(temporal)
+            if temporal and temporal.dates:
+                # Return ISO date strings for all resolved anchors
+                dates = temporal.dates
+                sorted_dates = sorted(dates.items(), key=lambda x: x[1])
+                start_label = dates[sorted_dates[0][0]].isoformat() if sorted_dates else ""
+                end_label = dates[sorted_dates[-1][0]].isoformat() if sorted_dates else ""
                 return {
                     "operation": "range_diff",
                     "start": start_label,
                     "end": end_label,
                 }
-            # Fallback: try entities
             return {
                 "operation": "range_diff",
                 "start": entities.get("start", ""),
@@ -275,72 +268,6 @@ class RuleBasedPlanner:
             }
 
         return {}
-
-    def _infer_date_labels(
-        self, temporal: "TemporalContext"
-    ) -> tuple:
-        """Infer the start and end date labels from a TemporalContext.
-
-        Returns (start_label, end_label) as strings suitable for Time Converter.
-        For journey scenarios, the end date prefers narrative-relative "昨天"
-        (resolved by TemporalParser as the day after the last weekday anchor).
-
-        IMPORTANT: Always return ISO date strings for anchors that are already
-        in temporal.dates, so that TimeConverterSkill receives unambiguous dates
-        and does not re-resolve "昨天" against the current calendar date.
-        """
-        dates = temporal.dates
-        if not dates:
-            return ("", "")
-
-        # Sort by date VALUE
-        sorted_by_date = sorted(dates.items(), key=lambda x: x[1])
-
-        # Return the *resolved ISO date* for each anchor, NOT the raw label.
-        # This prevents TimeConverterSkill from re-interpreting "昨天" against
-        # the current calendar date (which would give a wrong result).
-        start_label = sorted_by_date[0][0]
-        end_label = (
-            dates["昨天"].isoformat()
-            if "昨天" in dates
-            else sorted_by_date[-1][0]
-        )
-
-        # If the start label is also in temporal.dates (i.e. it's a qualified
-        # anchor like "上周五"), return its ISO string too.
-        if start_label in dates:
-            start_label = dates[start_label].isoformat()
-
-        return (start_label, end_label)
-
-    def _inject_temporal_dates(
-        self, entities: Dict[str, Any], temporal: "TemporalContext"
-    ) -> Dict[str, Any]:
-        """Inject resolved date values from temporal context into task parameters.
-
-        For journey_avg, we compute days from the narrative-relative journey
-        dates (start → end of the actual trip), not from the raw min/max of
-        all anchors. The journey end is "昨天" (resolved), not the latest anchor.
-        """
-        result = dict(entities)
-
-        if "days" not in result or not str(result.get("days", "")).isdigit():
-            # Compute days from the actual journey range, not raw anchor extremes.
-            # Prefer "昨天" as end (narrative-relative) over the latest anchor.
-            dates = temporal.dates
-            if len(dates) >= 2:
-                sorted_dates = sorted(dates.items(), key=lambda x: x[1])
-                # Journey end: "昨天" if present, else latest anchor
-                if "昨天" in dates:
-                    end_date = dates["昨天"]
-                else:
-                    end_date = sorted_dates[-1][1]
-                start_date = sorted_dates[0][1]
-                days = (end_date - start_date).days
-                if days > 0:
-                    result["days"] = str(days)
-
-        return result
 
     def _inject_dep_placeholders(
         self, entities: Dict[str, Any], dep_skills: List[str]

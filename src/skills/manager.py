@@ -10,6 +10,8 @@ Provides a unified interface that:
 All components can be used independently or together.
 """
 
+import re
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .base import BaseSkill
@@ -17,6 +19,7 @@ from .skill_registry import SkillRegistry
 from .task_executor import TaskExecutor
 from .math_teacher import MathTeacherSkill
 from .time_converter import TimeConverterSkill
+from .semantic_skill import SemanticSkill
 
 if TYPE_CHECKING:
     from ..agent import CustomerServiceAgent
@@ -45,6 +48,7 @@ class SkillManager:
         """Register built-in skills."""
         self.register(MathTeacherSkill())
         self.register(TimeConverterSkill())
+        self.register(SemanticSkill(use_demo_model=True))
 
     def _resolve_today_date(self):
         """Resolve the current local date via TimeConverterSkill.
@@ -170,6 +174,12 @@ class SkillManager:
         else:
             plan = self._plan_fallback(primary)
 
+        # Inject user_message into every TaskNode so skills that need it (SemanticSkill)
+        # receive the original user query for semantic search, not just entity dict keys.
+        for task in plan.tasks:
+            if not task.user_message:
+                task.user_message = user_input
+
         decision = plan.decision.value
 
         # 3. Route on decision
@@ -241,6 +251,82 @@ class SkillManager:
             "plan": plan,
             "temporal": temporal,
         }
+
+    async def run_pipeline_stream(self, user_input: str):
+        """Streaming version of run_pipeline: yields SSE-ready event dicts.
+
+        Phase 0-2 are the same as run_pipeline (fast, no I/O).
+        Phase 3 uses TaskExecutor.execute_stream() which yields
+        tool_call / tool_result events as each skill completes.
+
+        Yields:
+            Dicts with keys: event (str), data (str)
+            matching docs/SSE流式响应规范.md
+
+        Returns the final decision string as a second value via a special event
+        ({"event": "_decision", "data": <decision>}) so the caller can route
+        on it without re-running Phase 0-2.
+        """
+        from ..intent.intent_classification import IntentClassification
+        from ..planner import RuleBasedPlanner
+        from ..temporal import TemporalParser
+        from ..sse_stream import (
+            think,
+            think_done,
+            content,
+            done,
+        )
+
+        today_date = self._resolve_today_date()
+
+        temporal = None
+        if self._temporal_parser:
+            temporal = self._temporal_parser.parse(user_input, today_date=today_date)
+        else:
+            temporal = TemporalParser(today_date=today_date).parse(user_input)
+
+        if self._classifier:
+            classifications = self._classifier.classify_with_context(user_input, temporal)
+            primary = max(classifications, key=lambda c: c.confidence)
+        else:
+            primary = self._classify_fallback(user_input)
+            classifications = [primary]
+
+        if self._planner:
+            plan = self._planner.plan(classifications, self._registry, temporal=temporal)
+        else:
+            plan = self._plan_fallback(primary)
+
+        for task in plan.tasks:
+            if not task.user_message:
+                task.user_message = user_input
+
+        decision = plan.decision.value
+
+        # Emit the decision as a private event so chat_stream can route on it
+        yield {"event": "_decision", "data": decision}
+
+        # Non-execution decisions: yield content and done
+        if decision in ("reject", "clarify", "hitl_confirm", "slot_missing"):
+            response = plan.rejected_reason or "无法处理该请求。"
+            if decision == "clarify" or decision == "hitl_confirm":
+                response = plan.hitl_prompt
+            if decision == "slot_missing":
+                response = "请提供必要的信息：" + ", ".join(plan.warnings)
+            yield content(response)
+            yield done()
+            return
+
+        if decision == "delegate_llm":
+            # Yield a marker; the agent will call _llm_chat_stream directly
+            yield {"event": "_delegate_llm", "data": "1"}
+            return
+
+        # EXECUTE decision: stream tool events from TaskExecutor
+        async for event in self._executor.execute_stream(plan):
+            yield event
+
+        yield done()
 
     # ─── Backward-compatible API ───────────────────────────────────────────────
 
@@ -333,28 +419,25 @@ class SkillManager:
         return {"matched": False}
 
     def build_temporal_context(self, message: str) -> Dict[str, Any]:
-        """Extract all time anchors and pre-compute journey math for multi-day narratives.
+        """Extract and resolve all relative dates in the user message.
 
-        Detects travel/journey patterns (多个日期锚点 + 总里程/每日等关键词) and
-        resolves all relative dates (上周五, 周一, 昨天) in context, then pre-computes
-        the journey answer so the LLM doesn't have to reason through the timeline.
+        All dates are resolved relative to the current local date (today), NOT
+        relative to any narrative anchor in the text.
 
         Returns a dict with:
-            - dates: {name_label: iso_date_string} mapping
+            - dates: {label: iso_date_string} mapping
             - timeline: human-readable ordered list
-            - context_text: formatted string for LLM injection (includes journey result)
+            - context_text: formatted string for LLM injection
             - has_multiple_anchors: bool
-            - journey_result: pre-computed journey analysis dict (or None)
+            - journey_result: always None — journey math is handled by the LLM
         """
-        from datetime import date, timedelta
-        import re as _re
-        import re
+        import re as _bare_re
 
         time_skill = self._registry.get("Time Converter")
         if not time_skill:
             return {"dates": {}, "timeline": [], "context_text": "", "has_multiple_anchors": False}
 
-        # ── Scan for qualified date-like expressions (qualified = has prefix like 上/下/这) ──
+        # All relative date keywords
         qualified_candidates = [
             "上周五", "上周一", "上周二", "上周三", "上周四", "上周六", "上周日",
             "下周一", "下周二", "下周三", "下周四", "下周五", "下周六", "下周日",
@@ -364,25 +447,24 @@ class SkillManager:
             "上个月", "下个月", "这个月",
             "去年", "今年", "明年",
         ]
-
-        # Bare weekdays (no prefix) — handled separately after we have a reference week.
-        # Use regex word boundaries to avoid substring matches (e.g. "上周五" should not match "周五")
-        import re as _bare_re
         bare_weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日",
-                          "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+                         "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
         weekday_map = {
             "周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4, "周六": 5, "周日": 6,
             "星期一": 0, "星期二": 1, "星期三": 2, "星期四": 3, "星期五": 4, "星期六": 5, "星期日": 6,
         }
 
         anchor_dates: Dict[str, date] = {}
+
+        # Resolve qualified labels (上周五, 昨天, etc.) via TimeConverterSkill
         for cand in qualified_candidates:
             if cand in message:
                 resolved = time_skill._resolve_date(cand)
                 if resolved:
                     anchor_dates[cand] = resolved
 
-        # Scan for ISO / Chinese date literals
+        # ISO date literals
+        import re as _re
         for m in _re.finditer(r"\d{4}-\d{2}-\d{2}", message):
             try:
                 anchor_dates[m.group(0)] = date.fromisoformat(m.group(0))
@@ -396,257 +478,52 @@ class SkillManager:
                 except ValueError:
                     pass
 
-        # Post-process: re-resolve bare weekdays relative to anchored week.
-        # If we have "上周五" (Friday of previous week), bare "周一" should resolve
-        # to Monday of the NEXT week (the week that starts AFTER 上周五's week).
-        # Story: 上周五出发 → Monday refers to the Monday that follows.
+        # Bare weekdays: resolve relative to TODAY's week (this week), NOT journey week.
+        forbidden_from_qualified: set = set()
+        qualified_week_labels = [
+            "上周五", "上周一", "上周二", "上周三", "上周四", "上周六", "上周日",
+            "下周一", "下周二", "下周三", "下周四", "下周五", "下周六", "下周日",
+            "这周一", "这周二", "这周三", "这周四", "这周五", "这周六", "这周日",
+        ]
+        for ql in qualified_week_labels:
+            if ql in message:
+                for bw in bare_weekdays:
+                    if bw in ql:
+                        forbidden_from_qualified.add(bw)
 
-        # Find the reference week from a qualified anchor (上周五 → week starting the Monday before)
-        ref_week_start = None
-        for label, d in anchor_dates.items():
-            if label in (
-                "上周五", "上周一", "上周二", "上周三", "上周四", "上周六", "上周日",
-                "下周一", "下周二", "下周三", "下周四", "下周五", "下周六", "下周日",
-                "这周一", "这周二", "这周三", "这周四", "这周五", "这周六", "这周日",
-            ):
-                # Monday of the week containing this anchor
-                ref_week_start = d - timedelta(days=d.weekday())
-                break
-
-        if ref_week_start:
-            # The journey week is the week AFTER the anchored week
-            journey_week_start = ref_week_start + timedelta(weeks=1)
-            for bw in bare_weekdays:
-                # Use word-boundary check to avoid "上周五" matching "周五"
-                pattern = _bare_re.compile(_bare_re.escape(bw))
-                if pattern.search(message) and bw not in anchor_dates:
-                    target_dow = weekday_map[bw]
-                    resolved_bw = journey_week_start + timedelta(days=target_dow)
-                    anchor_dates[bw] = resolved_bw
+        this_monday = time_skill.today - timedelta(days=time_skill.today.weekday())
+        for bw in bare_weekdays:
+            if bw not in anchor_dates and bw not in forbidden_from_qualified:
+                if _bare_re.search(_bare_re.escape(bw), message):
+                    dow_idx = weekday_map[bw]
+                    anchor_dates[bw] = this_monday + timedelta(days=dow_idx)
 
         if len(anchor_dates) < 2:
             return {"dates": {}, "timeline": [], "context_text": "", "has_multiple_anchors": False}
 
-        # ── Resolve "昨天" relative to weekday anchors in the narrative ─────
-        # Strategy: find the weekday anchor that appears LAST in the text (most recent
-        # narrative mention), then "昨天" = the day after that anchor.
-        # e.g. text: "上周五出发，周一还剩1000km，昨天到达"
-        #   → "周一" appears last in text → 昨天 = day after 周一 = 周二
-        yesterday_note = None
-        yesterday_resolved_date = None
-
-        # Collect all weekday anchors with their text positions
-        qualified_anchor_labels = {
-            "上周五", "上周一", "上周二", "上周三", "上周四", "上周六", "上周日",
-            "下周一", "下周二", "下周三", "下周四", "下周五", "下周六", "下周日",
-            "这周一", "这周二", "这周三", "这周四", "这周五", "这周六", "这周日",
-        }
-        for bw in ["周一", "周二", "周三", "周四", "周五", "周六", "周日",
-                     "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]:
-            qualified_anchor_labels.add(bw)
-
-        # Find the weekday anchor that appears last in the message text
-        latest_anchor_label = None
-        latest_pos = -1
-        for label in qualified_anchor_labels:
-            pos = message.find(label)
-            if pos != -1 and pos > latest_pos:
-                latest_pos = pos
-                latest_anchor_label = label
-
-        if latest_anchor_label and latest_anchor_label in anchor_dates:
-            anchor_date = anchor_dates[latest_anchor_label]
-            anchor_wd = time_skill._get_chinese_weekday(anchor_date)
-            yd = anchor_date + timedelta(days=1)
-            ywd = time_skill._get_chinese_weekday(yd)
-            yesterday_note = (
-                f"⚠️ 【关键】'昨天'在叙事中应理解为{latest_anchor_label}({anchor_date.isoformat()},{anchor_wd})的后一天"
-                f"={yd.isoformat()}({ywd})！"
-            )
-            yesterday_resolved_date = yd
-
-        # Build weekday_entries for journey computation (all qualified anchors)
-        weekday_entries: Dict[str, tuple] = {}
-        for label, d in anchor_dates.items():
-            wd = time_skill._get_chinese_weekday(d)
-            if label in qualified_anchor_labels:
-                weekday_entries[label] = (d, wd)
-
-        # ── Build readable timeline ────────────────────────────────────────
+        # Build timeline
         resolved_entries = []
         for label, d in anchor_dates.items():
             wd = time_skill._get_chinese_weekday(d)
             resolved_entries.append(f"{label}({d.isoformat()},{wd})")
 
         dates_iso = {k: v.isoformat() for k, v in anchor_dates.items()}
-        timeline_parts = sorted(
-            resolved_entries,
-            key=lambda x: x.split("(")[1].split(",")[0]
-        )
+        timeline_parts = sorted(resolved_entries, key=lambda x: x.split("(")[1].split(",")[0])
 
-        # ── Pre-compute journey math if this is a travel/journey message ────
-        # Detected by: multiple date anchors + total distance keyword + "每天" or "平均"
-        journey_result = None
-        journey_keywords = ["行驶", "公里", "km", "拉萨", "成都", "出发", "每天", "平均", "总共", "一共"]
-        math_keywords = ["每天", "平均", "多远"]
-        has_journey = sum(1 for kw in journey_keywords if kw in message) >= 3
-        has_math = any(kw in message for kw in math_keywords)
-        has_total = any(kw in message for kw in ["2080", "总共", "一共", "总", "行驶了"]) and any(kw in message for kw in ["km", "公里", "米"])
-
-        if has_journey and (has_math or has_total):
-            journey_result = self._compute_journey(message, anchor_dates, yesterday_resolved_date, time_skill)
-
-        # ── Build context text ──────────────────────────────────────────────
         context_parts = [
-            f"[时间线分析 — 重要：所有相对日期均以今天({date.today().isoformat()})为基准推算]",
+            f"[时间线分析 — 重要：所有相对日期均以今天({time_skill.today.isoformat()})为基准推算]",
             f"检测到 {len(anchor_dates)} 个日期锚点：{', '.join(sorted(anchor_dates.keys()))}",
             f"时间线：{' | '.join(timeline_parts)}",
+            "请根据上述时间线理解'昨天'、'前天'等相对日期在叙事中的具体日期。",
         ]
-        if yesterday_note:
-            context_parts.append(yesterday_note)
-
-        if journey_result:
-            context_parts.append(f"\n【旅程计算结果】\n{journey_result}")
-
-        context_parts.append("请根据上述时间线理解'昨天'、'前天'等相对日期在叙事中的具体日期。")
 
         return {
             "dates": dates_iso,
             "timeline": timeline_parts,
             "context_text": "\n".join(context_parts),
             "has_multiple_anchors": True,
-            "journey_result": journey_result,
+            "journey_result": None,
         }
-
-    def _compute_journey(
-        self,
-        message: str,
-        anchor_dates: Dict[str, "date"],
-        yesterday_resolved: Optional["date"],
-        time_skill: Any,
-    ) -> Optional[str]:
-        """Pre-compute journey math from a multi-date travel narrative.
-
-        Detects patterns like:
-        - "从X到Y，总共Z公里，每天走多远"
-        - "从上周五出发...昨天到达拉萨，总共X公里"
-        """
-        import re as _re
-        from datetime import date
-
-        if not anchor_dates:
-            return None
-
-        # Build weekday entries from anchor_dates for journey computation
-        # (same as the qualified anchor filter in build_temporal_context)
-        qualified_anchor_labels = {
-            "上周五", "上周一", "上周二", "上周三", "上周四", "上周六", "上周日",
-            "下周一", "下周二", "下周三", "下周四", "下周五", "下周六", "下周日",
-            "这周一", "这周二", "这周三", "这周四", "这周五", "这周六", "这周日",
-        }
-        for bw in ["周一", "周二", "周三", "周四", "周五", "周六", "周日",
-                     "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]:
-            if bw in message:
-                qualified_anchor_labels.add(bw)
-
-        journey_weekday_entries = {
-            label: (d, time_skill._get_chinese_weekday(d))
-            for label, d in anchor_dates.items()
-            if label in qualified_anchor_labels
-        }
-
-        # Determine journey start: prefer qualified weekday anchors
-        weekday_start_label = None
-        weekday_end_label = None
-        for label in journey_weekday_entries:
-            if weekday_start_label is None:
-                weekday_start_label = label
-            else:
-                weekday_end_label = label
-
-        # Use weekday-named start if available, else earliest anchor
-        if weekday_start_label:
-            start_date = anchor_dates[weekday_start_label]
-        else:
-            start_date = min(anchor_dates.values())
-
-        # End: use resolved yesterday if available and after start, else latest weekday anchor
-        if yesterday_resolved and yesterday_resolved >= start_date:
-            end_date = yesterday_resolved
-            end_label = f"昨天({time_skill._get_chinese_weekday(end_date)})"
-        elif weekday_end_label:
-            end_date = anchor_dates[weekday_end_label]
-            end_label = weekday_end_label
-        else:
-            end_date = max(anchor_dates.values())
-            end_label = next((k for k, v in anchor_dates.items() if v == end_date), str(end_date))
-
-        days = (end_date - start_date).days
-        if days <= 0:
-            return None
-
-        # Extract total distance
-        total_km = 0
-        m = _re.search(r"(?:一共|总共|行驶了)[^\d]*?(\d+(?:\.\d+)?)\s*(?:km|公里|千米|米)?", message)
-        if not m:
-            m = _re.search(r"(\d+(?:\.\d+)?)\s*(?:km|公里|千米)", message)
-        if m:
-            total_km = float(m.group(1))
-
-        # Extract remaining distance (周一还剩1000km)
-        remaining_km = 0
-        m_rem = _re.search(r"还剩?\s*(\d+(?:\.\d+)?)\s*(?:km|公里|千米|米)?", message)
-        if m_rem:
-            remaining_km = float(m_rem.group(1))
-
-        start_wd = time_skill._get_chinese_weekday(start_date)
-        end_wd = time_skill._get_chinese_weekday(end_date)
-
-        lines = []
-        lines.append(
-            f"行程分析：{weekday_start_label}({start_date.isoformat()},{start_wd}) "
-            f"→ {end_label}({end_date.isoformat()},{end_wd})，共 {days} 天"
-        )
-
-        if total_km > 0:
-            avg = total_km / days
-            lines.append(f"总里程：{total_km:.0f} km，总天数：{days} 天，平均：{total_km:.0f}/{days} = {avg:.1f} km/天")
-
-            if remaining_km > 0 and journey_weekday_entries:
-                # Find middle anchor (周一, 周三 style) between start and end
-                mid_date = None
-                mid_label = None
-                for label, (d, _) in sorted(journey_weekday_entries.items(), key=lambda x: x[1][0]):
-                    if start_date < d < end_date:
-                        mid_date = d
-                        mid_label = label
-                        break
-
-                if mid_date:
-                    mid_wd = time_skill._get_chinese_weekday(mid_date)
-                    first_leg_days = (mid_date - start_date).days
-                    first_leg_km = total_km - remaining_km
-                    first_leg_avg = first_leg_km / first_leg_days if first_leg_days > 0 else 0
-                    second_leg_days = (end_date - mid_date).days
-                    second_leg_km = remaining_km
-                    second_leg_avg = second_leg_km / second_leg_days if second_leg_days > 0 else 0
-
-                    lines.append(
-                        f"第一段：{weekday_start_label} → {mid_label}，"
-                        f"{first_leg_days} 天，行驶 {first_leg_km:.0f} km，平均 {first_leg_avg:.1f} km/天"
-                    )
-                    lines.append(
-                        f"第二段：{mid_label} → {end_label}，"
-                        f"{second_leg_days} 天，行驶 {second_leg_km:.0f} km，平均 {second_leg_avg:.1f} km/天"
-                    )
-
-                    if first_leg_avg > second_leg_avg:
-                        lines.append(f"结论：前半段走得更快（每天多 {first_leg_avg - second_leg_avg:.1f} km）")
-                    else:
-                        lines.append(f"结论：后半段走得更快（每天多 {second_leg_avg - first_leg_avg:.1f} km）")
-
-        return "\n".join(lines) if lines else None
-
     # ─── Internal helpers ──────────────────────────────────────────────────────
 
     def _skill_matches(self, skill: BaseSkill, message: str) -> bool:

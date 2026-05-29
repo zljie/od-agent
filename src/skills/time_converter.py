@@ -224,8 +224,6 @@ class TimeConverterSkill(BaseSkill):
 
     def _resolve_date(self, raw: str) -> Optional["date"]:
         """Resolve a date expression string to a date object."""
-        from .time_converter import TimeConverterSkill
-        # Reuse the full parsing logic
         raw = raw.strip()
         if not raw:
             return None

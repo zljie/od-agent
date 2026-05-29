@@ -235,46 +235,6 @@ def extract_day_of_week_entities(text: str) -> Optional[Dict[str, str]]:
     return None
 
 
-# ─── Journey entity extractor ───────────────────────────────────────────────────
-
-
-def extract_journey_entities(text: str) -> Optional[Dict[str, str]]:
-    """Extract entities for a travel/journey intent.
-
-    Detects keywords like "行驶", "出发", "到达", "平均每天", "多远" combined
-    with distance figures (e.g. "2080km", "1000km") and date anchors.
-
-    Returns:
-        {"operation": "journey_avg", "total_km": "...", "remaining_km": "..."}
-        or None if the text does not look like a journey query.
-    """
-    journey_kws = ["行驶", "出发", "到达", "拉萨", "成都", "平均", "每天", "多远", "总共", "一共", "共"]
-    math_kws = ["平均", "每天", "多远", "除以"]
-
-    has_journey = sum(1 for kw in journey_kws if kw in text) >= 2
-    has_math = any(kw in text for kw in math_kws)
-
-    if not (has_journey and has_math):
-        return None
-
-    entities: Dict[str, str] = {"operation": "journey_avg"}
-
-    # Extract total distance
-    num_pat = r"(-?\d+(?:\.\d+)?)"
-    m = re.search(r"(?:一共|总共|行驶了|共)[^\d]*?" + num_pat + r"\s*(?:km|公里|千米|米)?", text)
-    if not m:
-        m = re.search(num_pat + r"\s*(?:km|公里|千米)", text)
-    if m:
-        entities["total_km"] = m.group(1)
-
-    # Extract remaining distance (周一还剩1000km)
-    m_rem = re.search(r"还[剩]?\s*" + num_pat + r"\s*(?:km|公里|千米|米)?", text)
-    if m_rem:
-        entities["remaining_km"] = m_rem.group(1)
-
-    return entities if len(entities) > 1 else None
-
-
 # ─── IntentRule ────────────────────────────────────────────────────────────────
 
 
@@ -451,44 +411,8 @@ class RuleBasedIntentClassifier:
         Returns:
             List of IntentClassification, sorted by confidence descending.
         """
-        if temporal_context is None or not temporal_context.has_multiple_anchors:
-            return self.classify_multi(text)
-
         # Pass original text to classify_multi — temporal dates are used
         # by the Planner phase, not here. Substituting ISO dates in the text
         # risks false-positive math classification (e.g. "2026-05-22" looks
         # like an arithmetic expression).
-        results = self.classify_multi(text)
-
-        # Try journey intent if the temporal context suggests a journey pattern
-        journey_entities = extract_journey_entities(text)
-        if journey_entities:
-            journey_class = IntentClassification(
-                intent_type="journey_avg",
-                confidence=0.9,
-                entities=journey_entities,
-                candidates=[],
-            )
-            existing_types = {c.intent_type for c in results}
-            if "journey_avg" not in existing_types:
-                results.append(journey_class)
-            results.sort(key=lambda c: c.confidence, reverse=True)
-
-        return results
-
-    def _enrich_text_with_dates(
-        self,
-        text: str,
-        temporal_context: "TemporalContext",
-    ) -> str:
-        """Return the original text unchanged.
-
-        The temporal context's dates dict already provides resolved date values
-        separately from the original text. We do not substitute date labels in
-        the text because doing so can trigger false-positive classifications
-        (e.g. "2026-05-22" looks like a math expression to extract_math_entities).
-
-        The temporal dates are passed to the planner via the `temporal` argument
-        and used directly when building dependency task parameters.
-        """
-        return text
+        return self.classify_multi(text)

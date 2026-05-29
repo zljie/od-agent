@@ -620,3 +620,131 @@ body {
         align-items: stretch;
     }
 }
+
+/* ── Semantic Backend Tab ─────────────────────────────────────────── */
+.semantic-schema-area {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border-radius: 10px;
+    padding: 16px;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.tool-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tool-list-item {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 16px;
+    border-left: 4px solid #667eea;
+}
+
+.tool-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.tool-item-header h4 {
+    color: #333;
+    font-size: 14px;
+    margin: 0;
+}
+
+.tool-description {
+    color: #666;
+    font-size: 12px;
+    margin: 0;
+}
+
+.tool-type-badge {
+    background: #667eea;
+    color: white;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.score-bar-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 120px;
+}
+
+.score-label {
+    color: #888;
+    font-size: 11px;
+}
+
+.score-bar {
+    flex: 1;
+    height: 6px;
+    background: #e0e0e0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.score-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea, #38ef7d);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.score-value {
+    color: #667eea;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 32px;
+    text-align: right;
+}
+
+.semantic-results-area {
+    margin-top: 20px;
+}
+
+.result-examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.result-graphql {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.graphql-label {
+    color: #667eea;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.result-graphql code {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}

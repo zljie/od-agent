@@ -1,0 +1,175 @@
+<div class="card">
+    <div class="card-header-row">
+        <h2>Semantic Backend Configuration</h2>
+        <span class="badge" x-show="semanticConfig.use_demo" style="background:#667eea;">Demo Mode</span>
+    </div>
+    <p style="color: #666; margin-bottom: 15px;">
+        Configure the OSI semantic model, GraphQL endpoint, and MCP tool registry for the semantic-native AI backend.
+    </p>
+
+    <!-- Model Config Section -->
+    <div class="config-section">
+        <h3 class="section-title">Model Configuration</h3>
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="form-group">
+                <label for="osiYamlPath">OSI Model YAML Path</label>
+                <input
+                    type="text"
+                    id="osiYamlPath"
+                    x-model="semanticConfig.yaml_path"
+                    placeholder="e.g. /path/to/semantic_model.yaml (leave empty for demo)"
+                >
+                <p class="field-hint">Path to the OSI semantic_model.yaml file. Empty = built-in demo model.</p>
+            </div>
+            <div class="form-group">
+                <label for="graphqlEndpoint">GraphQL Endpoint</label>
+                <input
+                    type="text"
+                    id="graphqlEndpoint"
+                    x-model="semanticConfig.graphql_endpoint"
+                    placeholder="e.g. http://localhost:4000/graphql"
+                >
+                <p class="field-hint">Optional. For live GraphQL execution (Apollo/Cosmo).</p>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="toggle-label">
+                <input type="checkbox" x-model="semanticConfig.use_demo">
+                <span>Use Demo Model (Supplier / PurchaseOrder / Material)</span>
+            </label>
+            <p class="field-hint">When enabled, uses the built-in demo domain instead of loading from YAML.</p>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <button class="btn btn-primary" @click="saveSemanticConfig()" :disabled="isSaving">
+            <span x-show="isSaving" class="btn-spinner"></span>
+            <span x-text="isSaving ? 'Saving...' : 'Save Configuration'"></span>
+        </button>
+        <button class="btn btn-success" @click="reloadSemanticBackend()" :disabled="isRefreshing">
+            <span x-show="isRefreshing" class="btn-spinner"></span>
+            <span x-text="isRefreshing ? 'Reloading...' : 'Reload Backend'"></span>
+        </button>
+    </div>
+
+    <!-- Status Messages -->
+    <div class="toast-container">
+        <div x-show="semanticStatusMsg" :class="'toast toast-' + semanticStatusType" x-transition>
+            <span x-text="semanticStatusMsg"></span>
+            <button class="toast-close" @click="semanticStatusMsg = ''">&times;</button>
+        </div>
+    </div>
+</div>
+
+<!-- Schema & Tools Card -->
+<div class="card">
+    <div class="card-header-row">
+        <h2>GraphQL Schema &amp; MCP Tools</h2>
+        <button class="btn btn-sm btn-outline" @click="loadSemanticSchema()" :disabled="isRefreshing">
+            Refresh
+        </button>
+    </div>
+
+    <!-- MCP Tools List -->
+    <div class="tool-list" id="toolList">
+        <template x-if="semanticTools.length === 0 && !isRefreshing">
+            <p style="color: #666; text-align: center; padding: 15px;">No MCP tools registered.</p>
+        </template>
+        <template x-for="tool in semanticTools" :key="tool.name">
+            <div class="tool-list-item">
+                <div class="tool-item-header">
+                    <h4 x-text="tool.name"></h4>
+                    <span class="tool-type-badge" x-text="tool.dataset || 'general'"></span>
+                </div>
+                <p class="tool-description" x-text="tool.description || 'No description'"></p>
+            </div>
+        </template>
+    </div>
+
+    <!-- GraphQL SDL Viewer -->
+    <div class="form-group" style="margin-top: 20px;">
+        <label style="font-weight: 600; color: #555; margin-bottom: 8px; display: block;">
+            GraphQL SDL
+            <span style="font-weight: 400; color: #999; font-size: 12px; margin-left: 8px;">
+                (read-only, generated from OSI model)
+            </span>
+        </label>
+        <div class="semantic-schema-area">
+            <pre x-text="semanticSchema || 'Click Refresh to load schema...'" style="margin: 0;"></pre>
+        </div>
+    </div>
+</div>
+
+<!-- Semantic Search Test Card -->
+<div class="card">
+    <div class="card-header-row">
+        <h2>Semantic Search Test</h2>
+    </div>
+    <p style="color: #666; margin-bottom: 15px;">
+        Test natural language queries against the semantic index. Results show the nearest GraphQL operations and their relevance scores.
+    </p>
+
+    <div class="form-group">
+        <label for="semanticTestQuery">Natural Language Query</label>
+        <input
+            type="text"
+            id="semanticTestQuery"
+            x-model="semanticTestQuery"
+            placeholder="e.g. 查一下供应商的采购情况"
+            @keydown.enter.prevent="testSemanticSearch()"
+        >
+    </div>
+
+    <div class="action-bar">
+        <button class="btn btn-success" @click="testSemanticSearch()" :disabled="semanticSearchLoading">
+            <span x-show="semanticSearchLoading" class="btn-spinner"></span>
+            <span x-text="semanticSearchLoading ? 'Searching...' : 'Test Search'"></span>
+        </button>
+    </div>
+
+    <!-- Search Results -->
+    <div x-show="semanticTestResults.length > 0" class="semantic-results-area">
+        <h4 style="color: #667eea; margin-bottom: 12px;">Results</h4>
+        <template x-for="(result, idx) in semanticTestResults" :key="idx">
+            <div class="tool-list-item">
+                <div class="tool-item-header">
+                    <h4>
+                        <span x-text="result.operation_type || 'query'"></span>
+                        <span style="color: #555; font-weight: 400;">:</span>
+                        <span x-text="result.dataset"></span>
+                        <span style="color: #555; font-weight: 400;">.</span>
+                        <span x-text="result.field_name"></span>
+                    </h4>
+                    <div class="score-bar-wrapper">
+                        <span class="score-label">score</span>
+                        <div class="score-bar">
+                            <div class="score-fill" :style="'width: ' + (result.score * 100) + '%'"></div>
+                        </div>
+                        <span class="score-value" x-text="(result.score * 100).toFixed(0) + '%'"></span>
+                    </div>
+                </div>
+                <template x-if="result.examples && result.examples.length > 0">
+                    <div class="result-examples">
+                        <template x-for="ex in result.examples.slice(0, 2)" :key="ex">
+                            <span class="keyword-tag" x-text="ex"></span>
+                        </template>
+                    </div>
+                </template>
+                <template x-if="result.graphql_fragment">
+                    <div class="result-graphql">
+                        <span class="graphql-label">GraphQL:</span>
+                        <code x-text="result.graphql_fragment"></code>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </div>
+
+    <!-- Error / Empty State -->
+    <div x-show="semanticSearchError" class="test-result" style="color: #eb3349; background: #f8d7da; border-color: #f5c6cb;">
+        <span x-text="semanticSearchError"></span>
+    </div>
+    <div x-show="!semanticSearchLoading && semanticTestResults.length === 0 && !semanticSearchError" style="color: #888; text-align: center; padding: 20px;">
+        Enter a query above and click Test Search to see results.
+    </div>
+</div>

@@ -13,7 +13,6 @@ from .intent_classifier import (
     extract_range_diff_entities,
     extract_math_entities,
     extract_day_of_week_entities,
-    extract_journey_entities,
 )
 
 __all__ = [
@@ -28,5 +27,4 @@ __all__ = [
     "extract_range_diff_entities",
     "extract_math_entities",
     "extract_day_of_week_entities",
-    "extract_journey_entities",
 ]

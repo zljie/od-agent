@@ -32,6 +32,7 @@ class TaskNode:
     rationale: str = ""
     hitl: bool = False
     risk_tag: str = "LOW"
+    user_message: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -42,6 +43,7 @@ class TaskNode:
             "rationale": self.rationale,
             "hitl": self.hitl,
             "risk_tag": self.risk_tag,
+            "user_message": self.user_message,
         }
 
 

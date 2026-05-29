@@ -66,6 +66,26 @@
 
 ---
 
+### [ID-003] Admin Semantic Backend 配置界面
+
+用户故事：作为开发者，我希望在 Admin 模块中配置和管理语义原生 AI 后端（OSI 模型、GraphQL Schema、MCP 工具），以便在界面上调试和验证语义查询能力。
+
+验收标准：
+- [x] `config/semantic_config.json` 配置文件（yaml_path、graphql_endpoint、use_demo）
+- [x] `src/app.py` 新增 6 个后端 API 端点（GET/PUT `/semantic/config`、GET `/semantic/schema`、GET `/semantic/tools`、POST `/semantic/search`、POST `/semantic/reload`）
+- [x] `templates/admin/semantic.html` — Semantic Tab 模板（模型配置区块 + Schema/Tools/搜索测试区块）
+- [x] `templates/admin/base.html` — Tab 导航新增 "Semantic" 按钮 + Alpine state + 方法
+- [x] `templates/admin/skills.html` — SemanticSkill 卡片展示 MCP tool 数量
+- [x] `static/css/admin.css` — 新增 `.semantic-schema-area` 和 `.tool-list-item` 样式
+- [x] pytest 测试通过
+- [ ] 更新 SPEC.md
+
+关联：`src/app.py`、`templates/admin/semantic.html`、`templates/admin/base.html`、`templates/admin/skills.html`、`static/css/admin.css`、`config/semantic_config.json`
+
+记录：创建日期 2026-05-29；完成日期 2026-05-29
+
+---
+
 ## 需求卡片模板
 
 ```

@@ -2,7 +2,7 @@
 
 import asyncio
 import re as _re
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from .skill_registry import SkillRegistry
 from ..planner.task_plan import TaskNode, TaskPlan
@@ -44,7 +44,7 @@ class TaskExecutor:
             resolved_params = self._resolve_params(node.params, results)
 
             try:
-                result = await skill.execute({"params": resolved_params, "message": ""})
+                result = await skill.execute({"params": resolved_params, "message": node.user_message or ""})
                 success = result.get("success", False)
                 return self._node_result(node, result, success, None)
             except Exception as e:
@@ -126,7 +126,10 @@ class TaskExecutor:
         for r in results:
             if r.get("success"):
                 all_failed = False
-                response = r.get("result", {}).get("response", "")
+                raw = r.get("result", {})
+                # Skill execute() returns {"success": ..., "response": "...", "metadata": {...}}
+                # The user-facing text lives one level deeper than r["result"]["response"]
+                response = raw.get("response", "") if isinstance(raw, dict) else str(raw)
                 if response:
                     parts.append(response)
             else:
@@ -140,3 +143,91 @@ class TaskExecutor:
             return f"__DELEGATE_LLM__\n" + "\n".join(parts)
 
         return "\n".join(parts)
+
+    async def execute_stream(
+        self, plan: TaskPlan
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Streaming version of execute: yields SSE-ready event dicts as each skill runs.
+
+        Each yielded dict follows the SSE spec in docs/SSE流式响应规范.md.
+        After all tool_call/tool_result pairs are yielded, final task results are
+        aggregated and a single content event is yielded with the combined response.
+        """
+        ordered = plan.topological_order()
+        results: Dict[str, Dict[str, Any]] = {}
+        results_list: List[Dict[str, Any]] = []   # deduped for aggregate_responses
+        pending: Dict[str, asyncio.Task] = {}
+        tool_id_map: Dict[str, str] = {}   # skill_id → assigned tool_id
+
+        async def run_node(node: TaskNode) -> Dict[str, Any]:
+            for dep_id in node.depends_on:
+                if dep_id in pending:
+                    await pending[dep_id]
+
+            skill = self._registry.get(node.skill_id)
+            if not skill:
+                return self._node_result(node, None, False, f"Skill '{node.skill_id}' not found")
+
+            resolved_params = self._resolve_params(node.params, results)
+
+            # Assign a spec-compliant tool_id
+            tool_id = f"call_{len(results):03d}"
+            tool_id_map[node.skill_id] = tool_id
+
+            try:
+                result = await skill.execute({"params": resolved_params, "message": node.user_message or ""})
+                success = result.get("success", False)
+                return self._node_result(node, result, success, None)
+            except Exception as e:
+                return self._node_result(node, None, False, str(e))
+
+        for node in ordered:
+            pending[node.node_id] = asyncio.create_task(run_node(node))
+
+        for node in ordered:
+            result = await pending[node.node_id]
+            tool_id = tool_id_map.get(node.skill_id, f"call_{len(results):03d}")
+
+            from ..sse_stream import tool_call, tool_result
+            skill = self._registry.get(node.skill_id)
+            skill_type = getattr(skill, "mcp_type", "skill") if skill else "skill"
+            skill_name = node.skill_id
+            resolved_params = self._resolve_params(node.params, results)
+
+            yield tool_call(
+                name=skill_name,
+                input_data=resolved_params,
+                type=skill_type,
+                tool_id=tool_id,
+                description=getattr(skill, "description", None) if skill else None,
+            )
+
+            if result.get("success"):
+                yield tool_result(
+                    tool_id=tool_id,
+                    name=skill_name,
+                    status="success",
+                    output=result.get("result"),
+                    error=None,
+                )
+            else:
+                yield tool_result(
+                    tool_id=tool_id,
+                    name=skill_name,
+                    status="error",
+                    output=None,
+                    error=result.get("error") or "Unknown error",
+                )
+
+            results[node.node_id] = result
+            # Keep skill-name index for _resolve_params in subsequent nodes,
+            # but track results_list separately so aggregate_responses sees no duplicates.
+            results_list.append(result)
+            normalized = node.skill_id.replace(" ", "_")
+            results["skill_" + normalized] = result
+
+        # Aggregate responses and emit the final content event
+        response = self.aggregate_responses(results_list)
+        from ..sse_stream import content
+        if response:
+            yield content(response)

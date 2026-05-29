@@ -23,7 +23,6 @@ from .intent import (
     extract_range_diff_entities,
     extract_math_entities,
     extract_day_of_week_entities,
-    extract_journey_entities,
 )
 from .models import get_model_config
 from .planner import RuleBasedPlanner
@@ -193,15 +192,18 @@ class CustomerServiceAgent:
                 ],
                 entity_extractor=extract_math_entities,
             ),
-            # Journey: travel + distance + average keywords
+            # Semantic query: natural language → semantic index search
             IntentRule(
-                intent_type="journey_avg",
-                description="行程计算：平均每日里程",
+                intent_type="semantic_query",
+                description="语义查询：自然语言在业务本体中查找数据",
                 keywords=[
-                    "行驶", "出发", "到达", "拉萨", "成都", "平均", "每天", "多远",
-                    "总共", "一共", "共", "剩余",
+                    "查一下", "查询", "看看", "获取", "获取数据",
+                    "供应商", "采购", "订单", "物料", "客户",
+                    "情况", "状态", "金额", "数量",
+                    "最近", "三个月", "统计", "汇总",
+                    "blocked", "active",
                 ],
-                entity_extractor=extract_journey_entities,
+                entity_extractor=None,
             ),
         ]
 
@@ -234,16 +236,12 @@ class CustomerServiceAgent:
                 required_slots=["expression"],
                 confidence_floor=0.3,
             ),
-            # Journey: Math Teacher depends on Time Converter for date range
-            # Time Converter resolves "上周五" and "昨天" → gives days count
-            # Math Teacher receives days from {Time_Converter.days} placeholder
+            # Semantic query: NL → GraphQL via semantic index
             IntentBinding.fixed_skill(
-                "journey_avg",
-                "Math Teacher",
-                required_slots=["total_km"],
-                confidence_floor=0.4,
-                depends_on_skills=["Time Converter"],
-                composite_meta_intent="travel_journey",
+                "semantic_query",
+                "Semantic Query",
+                required_slots=[],
+                confidence_floor=0.3,
             ),
             # Default: delegate to LLM for unknown intents
             IntentBinding.llm_free("UNKNOWN"),
@@ -288,10 +286,6 @@ class CustomerServiceAgent:
             return await self._llm_chat(user_input, skill_context=skill_context)
 
         # EXECUTE: skill returned structured result
-        # If temporal context has a journey result, delegate to LLM for final synthesis
-        if temporal and temporal.journey_result:
-            return await self._llm_chat(user_input, skill_context=raw_response)
-
         return raw_response
 
     async def _llm_chat(self, user_input: str, skill_context: Optional[str] = None) -> str:
@@ -314,21 +308,11 @@ class CustomerServiceAgent:
         # Build enhanced user input with skill context
         content = user_input
         if skill_context:
-            # When we have skill results + journey computation, combine both
-            journey_result = temporal.get("journey_result") if temporal.get("has_multiple_anchors") else None
-            if journey_result:
-                content = (
-                    f"用户问题：{user_input}\n\n"
-                    f"【技能解析结果】\n{skill_context}\n\n"
-                    f"【旅程预计算结果】\n{journey_result}\n\n"
-                    f"请综合以上信息，给出最终答案。"
-                )
-            else:
-                content = (
-                    f"用户原始问题：{user_input}\n\n"
-                    f"技能执行结果（供参考）：\n{skill_context}\n\n"
-                    f"请基于以上信息回答用户问题。"
-                )
+            content = (
+                f"用户原始问题：{user_input}\n\n"
+                f"技能执行结果（供参考）：\n{skill_context}\n\n"
+                f"请基于以上信息回答用户问题。"
+            )
         else:
             # Always expose skill catalog + temporal context so the LLM knows what's available
             parts = [
@@ -352,60 +336,78 @@ class CustomerServiceAgent:
         try:
             response = await self.agent(msg)
             resp_content = response.content
+            text_parts = []
+
+            # Extract from memory history (all rounds, for thinking + text)
+            for entry in self.agent.memory.content:
+                hist_msg = entry[0] if isinstance(entry, tuple) else entry
+                if not hasattr(hist_msg, "content"):
+                    continue
+                mc = hist_msg.content
+                if isinstance(mc, str):
+                    text_parts.append(mc)
+                elif isinstance(mc, list):
+                    for block in mc:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                        elif isinstance(block, str):
+                            text_parts.append(block)
+
+            # Also scan final reply_msg blocks for text not yet covered
             if isinstance(resp_content, list):
-                text_parts = []
-                for item in resp_content:
-                    if isinstance(item, dict):
-                        if item.get("type") == "text":
-                            text_parts.append(item.get("text", ""))
-                        elif "content" in item:
-                            text_parts.append(str(item["content"]))
-                    elif isinstance(item, str):
-                        text_parts.append(item)
-                resp_content = "".join(text_parts)
-            return str(resp_content) if resp_content else ""
+                for block in resp_content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                    elif isinstance(block, str):
+                        text_parts.append(block)
+
+            return "".join(text_parts)
         except Exception as e:
             return f"Error calling DeepSeek API: {str(e)}"
 
     async def chat_stream(self, user_input: str):
-        """Streaming version of chat: yields text chunks as they arrive from the LLM.
+        """Streaming version of chat: yields SSE event dicts per docs/SSE流式响应规范.md.
 
-        Skill pipeline results are returned as a single chunk (no streaming).
-        LLM responses stream token-by-token from the model.
+        Single pass through Phase 0-2 (Temporal → Intent → Plan) via
+        run_pipeline_stream(), then streams the result based on decision:
+        - reject/clarify/slot_missing: content + done
+        - delegate_llm: LLM stream via _llm_chat_stream()
+        - EXECUTE: tool_call / tool_result / content events from TaskExecutor
         """
-        pipeline_result = await self._skill_manager.run_pipeline(user_input)
-        decision = pipeline_result.get("decision", "")
-        raw_response = pipeline_result.get("response", "")
-        temporal = pipeline_result.get("temporal")
+        from .sse_stream import (
+            done,
+        )
 
-        if decision in ("reject", "clarify", "hitl_confirm", "slot_missing"):
-            yield raw_response
-            return
+        async for event in self._skill_manager.run_pipeline_stream(user_input):
+            ev_type = event.get("event", "")
 
-        if raw_response.startswith("__DELEGATE_LLM__"):
-            skill_context = raw_response[len("__DELEGATE_LLM__") :].strip()
-            async for chunk in self._llm_chat_stream(user_input, skill_context=skill_context):
-                yield chunk
-            return
+            # Private routing events — not forwarded to the SSE client
+            if ev_type in ("_decision", "_delegate_llm"):
+                if ev_type == "_delegate_llm":
+                    async for chunk in self._llm_chat_stream(user_input):
+                        yield chunk
+                    yield done()
+                continue
 
-        if decision == "delegate_llm":
-            simple_result = await self._skill_manager._detect_and_execute_simple(user_input, self)
-            if simple_result and simple_result.get("executed"):
-                yield simple_result["result"].get("response", raw_response)
-                return
-            async for chunk in self._llm_chat_stream(user_input):
-                yield chunk
-            return
-
-        if temporal and temporal.journey_result:
-            async for chunk in self._llm_chat_stream(user_input, skill_context=raw_response):
-                yield chunk
-            return
-
-        yield raw_response
+            yield event
 
     async def _llm_chat_stream(self, user_input: str, skill_context: Optional[str] = None):
-        """Streaming LLM chat: yields text chunks token-by-token."""
+        """Streaming LLM chat: yields SSE events from the model response.
+
+        AgentScope's response.content is a list of ContentBlocks:
+        - ThinkingBlock: {"type": "thinking", "thinking": "..."}
+        - TextBlock:    {"type": "text", "text": "..."}
+        - ToolUseBlock: {"type": "tool_use", ...} — skipped, ReAct loop handles internally
+
+        We emit think + think_done for ThinkingBlocks, content for TextBlocks.
+        """
+        from .sse_stream import (
+            think,
+            think_done,
+            content,
+        )
+
         skill_catalog = self._skill_manager.get_skills_summary()
         skill_lines = []
         for s in skill_catalog:
@@ -417,22 +419,13 @@ class CustomerServiceAgent:
         temporal = self._skill_manager.build_temporal_context(user_input)
         temporal_context_str = temporal.get("context_text", "") if temporal.get("has_multiple_anchors") else ""
 
-        content = user_input
+        user_content = user_input
         if skill_context:
-            journey_result = temporal.get("journey_result") if temporal.get("has_multiple_anchors") else None
-            if journey_result:
-                content = (
-                    f"用户问题：{user_input}\n\n"
-                    f"【技能解析结果】\n{skill_context}\n\n"
-                    f"【旅程预计算结果】\n{journey_result}\n\n"
-                    f"请综合以上信息，给出最终答案。"
-                )
-            else:
-                content = (
-                    f"用户原始问题：{user_input}\n\n"
-                    f"技能执行结果（供参考）：\n{skill_context}\n\n"
-                    f"请基于以上信息回答用户问题。"
-                )
+            user_content = (
+                f"用户原始问题：{user_input}\n\n"
+                f"技能执行结果（供参考）：\n{skill_context}\n\n"
+                f"请基于以上信息回答用户问题。"
+            )
         else:
             parts = [
                 f"{user_input}\n\n",
@@ -445,24 +438,69 @@ class CustomerServiceAgent:
                 "如果用户问题可以用以上技能解决，请直接使用技能结果回答；"
                 "如果技能列表中没有相关技能，再使用你的知识回答。"
             )
-            content = "".join(parts)
+            user_content = "".join(parts)
 
-        msg = Msg(name="user", content=content, role="user")
+        msg = Msg(name="user", content=user_content, role="user")
         try:
             response = await self.agent(msg)
-            resp_content = response.content
-            if isinstance(resp_content, list):
-                for item in resp_content:
-                    if isinstance(item, dict):
-                        text = item.get("text", "") or str(item.get("content", ""))
-                        if text:
-                            yield text
-                    elif isinstance(item, str) and item:
-                        yield item
-            elif isinstance(resp_content, str) and resp_content:
-                yield resp_content
+            msg_content = response.content
+
+            # Extract thinking from ALL rounds in memory history.
+            # InMemoryMemory stores (Msg, list[str]) tuples, not plain Msg list.
+            full_think_parts: list[str] = []
+            full_text_parts: list[str] = []
+
+            for entry in self.agent.memory.content:
+                # InMemoryMemory stores (Msg, list[str]) tuples; other impls may use list[Msg]
+                hist_msg = entry[0] if isinstance(entry, tuple) else entry
+                if not hasattr(hist_msg, "content"):
+                    continue
+                mc = hist_msg.content
+                if isinstance(mc, str):
+                    full_text_parts.append(mc)
+                elif isinstance(mc, list):
+                    for block in mc:
+                        if isinstance(block, dict):
+                            if block.get("type") == "thinking":
+                                full_think_parts.append(block.get("thinking", ""))
+                            elif block.get("type") == "text":
+                                full_text_parts.append(block.get("text", ""))
+                        elif isinstance(block, str):
+                            full_text_parts.append(block)
+
+            # Deduplicate: last reply_msg blocks may already be in history
+            # (memory stores every reasoning message). Check if the final reply
+            # has content not yet yielded.
+            if isinstance(msg_content, list):
+                reply_think_parts: list[str] = []
+                reply_text_parts: list[str] = []
+                for block in msg_content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "thinking":
+                            reply_think_parts.append(block.get("thinking", ""))
+                        elif block.get("type") == "text":
+                            reply_text_parts.append(block.get("text", ""))
+
+                # Merge: history thinking + reply thinking (reply may have latest)
+                combined_think = "".join(full_think_parts)
+                combined_text = "".join(reply_text_parts) or "".join(full_text_parts)
+            elif isinstance(msg_content, str):
+                combined_think = "".join(full_think_parts)
+                combined_text = msg_content
+            else:
+                combined_think = "".join(full_think_parts)
+                combined_text = ""
+
+            # Emit SSE events in spec order: think → think_done → content
+            if combined_think:
+                yield think(combined_think)
+                yield think_done()
+
+            if combined_text:
+                yield content(combined_text)
+
         except Exception as e:
-            yield f"Error calling DeepSeek API: {str(e)}"
+            yield content(f"Error calling DeepSeek API: {str(e)}")
 
 
 # Singleton instance

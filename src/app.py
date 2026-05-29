@@ -22,6 +22,8 @@ from .models import ModelConfig, get_model_config
 from .skills import get_skill_manager, reload_skill_manager
 from .llm_providers import provider_catalog
 
+SEMANTIC_CONFIG_PATH = Path("config/semantic_config.json")
+
 load_dotenv()
 
 
@@ -101,6 +103,32 @@ def save_intent_config(intents: List[Dict]) -> None:
         json.dump(intents, f, indent=2, ensure_ascii=False)
 
 
+def load_semantic_config() -> Dict[str, Any]:
+    """Load semantic backend configuration from file."""
+    if not SEMANTIC_CONFIG_PATH.exists():
+        return {"yaml_path": "", "graphql_endpoint": "", "use_demo": True}
+    try:
+        with open(SEMANTIC_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"yaml_path": "", "graphql_endpoint": "", "use_demo": True}
+
+
+def save_semantic_config(config: Dict[str, Any]) -> None:
+    """Save semantic backend configuration to file."""
+    SEMANTIC_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(SEMANTIC_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+class SemanticConfigUpdate(BaseModel):
+    """Model for updating semantic backend configuration."""
+
+    yaml_path: Optional[str] = None
+    graphql_endpoint: Optional[str] = None
+    use_demo: Optional[bool] = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
@@ -155,7 +183,7 @@ def create_app() -> FastAPI:
 
         Unified endpoint supporting two modes:
         - stream=false (default): waits for full response, returns {response, session_id}
-        - stream=true: returns SSE stream of text chunks
+        - stream=true: returns SSE stream per docs/SSE流式响应规范.md
 
         Accepts both formats:
         - Simple: {"message": "...", "stream": true}
@@ -163,7 +191,6 @@ def create_app() -> FastAPI:
         """
         agent = get_agent()
 
-        # Support both simple message and deep-chat messages array
         user_message: Optional[str] = None
         if request.message:
             user_message = request.message
@@ -180,13 +207,7 @@ def create_app() -> FastAPI:
             return ChatResponse(response="No message provided", session_id=request.session_id)
 
         if request.stream:
-            async def event_generator():
-                async for chunk in agent.chat_stream(user_message):
-                    if chunk:
-                        yield {"event": "message", "data": json.dumps({"content": chunk}, ensure_ascii=False)}
-                yield {"event": "message", "data": "[DONE]"}
-
-            return EventSourceResponse(event_generator())
+            return EventSourceResponse(agent.chat_stream(user_message))
 
         response = await agent.chat(user_message)
         return ChatResponse(
@@ -201,9 +222,8 @@ def create_app() -> FastAPI:
         """Alias for POST /chat with stream=true.
 
         Accepts deep-chat format: {"messages": [{"role": "user", "content": "..."}]}
-        Internally delegates to the unified /chat endpoint.
+        Returns SSE stream per docs/SSE流式响应规范.md.
         """
-        # Extract last user message from messages array
         user_message = None
         for msg in reversed(request.get("messages", [])):
             if isinstance(msg, dict) and msg.get("role") == "user":
@@ -214,14 +234,7 @@ def create_app() -> FastAPI:
             return {"text": "No message provided"}
 
         agent = get_agent()
-
-        async def event_generator():
-            async for chunk in agent.chat_stream(user_message):
-                if chunk:
-                    yield {"event": "message", "data": json.dumps({"content": chunk}, ensure_ascii=False)}
-            yield {"event": "message", "data": "[DONE]"}
-
-        return EventSourceResponse(event_generator())
+        return EventSourceResponse(agent.chat_stream(user_message))
 
     # Process endpoint (AgentApp style)
     @app.post("/process")
@@ -388,6 +401,90 @@ def create_app() -> FastAPI:
         skill_manager = get_skill_manager()
         result = skill_manager.detect_intent(message)
         return result
+
+    # Semantic Backend Endpoints
+    @app.get("/semantic/config")
+    async def get_semantic_config():
+        """Get current semantic backend configuration."""
+        return load_semantic_config()
+
+    @app.put("/semantic/config")
+    async def update_semantic_config(config: SemanticConfigUpdate):
+        """Update semantic backend configuration."""
+        current = load_semantic_config()
+        if config.yaml_path is not None:
+            current["yaml_path"] = config.yaml_path
+        if config.graphql_endpoint is not None:
+            current["graphql_endpoint"] = config.graphql_endpoint
+        if config.use_demo is not None:
+            current["use_demo"] = config.use_demo
+        save_semantic_config(current)
+        return {"status": "success", "message": "Semantic config updated", "config": current}
+
+    @app.get("/semantic/schema")
+    async def get_semantic_schema():
+        """Get the current GraphQL SDL schema."""
+        try:
+            from .skills import get_skill_manager
+            sm = get_skill_manager()
+            skill = sm.get_skill("Semantic Query")
+            if skill and hasattr(skill, "get_schema"):
+                return {"schema": skill.get_schema()}
+            return {"schema": ""}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/semantic/tools")
+    async def get_semantic_tools():
+        """Get MCP tools from the semantic backend."""
+        try:
+            from .skills import get_skill_manager
+            sm = get_skill_manager()
+            skill = sm.get_skill("Semantic Query")
+            if skill and hasattr(skill, "get_all_tools"):
+                return {"tools": skill.get_all_tools()}
+            return {"tools": []}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/semantic/search")
+    async def semantic_search(request: dict):
+        """Test semantic search with a natural language query."""
+        query = request.get("query", "")
+        if not query:
+            raise HTTPException(status_code=400, detail="query is required")
+        try:
+            from .skills import get_skill_manager
+            import asyncio
+            sm = get_skill_manager()
+            skill = sm.get_skill("Semantic Query")
+            if not skill:
+                raise HTTPException(status_code=404, detail="Semantic Query skill not found")
+            result = await skill.execute({"message": query})
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/semantic/reload")
+    async def reload_semantic_backend():
+        """Reload the semantic backend with current config."""
+        try:
+            from .skills import get_skill_manager
+            sm = get_skill_manager()
+            config = load_semantic_config()
+            skill = sm.get_skill("Semantic Query")
+            if skill:
+                skill._initialized = False
+                skill._backend = None
+                skill._yaml_path = config.get("yaml_path") or None
+                skill._graphql_endpoint = config.get("graphql_endpoint") or None
+                skill._use_demo_model = config.get("use_demo", True)
+                skill._ensure_loaded()
+            return {"status": "success", "message": "Semantic backend reloaded"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
     # Admin UI endpoint
     @app.get("/admin", response_class=HTMLResponse)

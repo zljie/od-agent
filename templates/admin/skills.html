@@ -13,6 +13,10 @@
                 <div class="skill-meta">
                     <span x-text="'Priority: ' + skill.priority"></span>
                     <span x-text="'Keywords: ' + (skill.keywords_count || 0)"></span>
+                    <!-- SemanticSkill extras -->
+                    <template x-if="skill.name === 'Semantic Query'">
+                        <span x-text="'MCP Tools: ' + (semanticTools.length || 0)"></span>
+                    </template>
                 </div>
                 <span class="skill-badge">Active</span>
             </div>
