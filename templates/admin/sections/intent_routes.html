@@ -1,0 +1,195 @@
+<!-- 意图路由配置 -->
+<div class="config-card" x-data="intentRoutesSection()">
+    <div class="config-card-header">
+        <h3>意图路由规则</h3>
+        <button class="btn btn-sm btn-primary" @click="showAddForm = !showAddForm">
+            <span x-text="showAddForm ? '取消' : '+ 添加意图'"></span>
+        </button>
+    </div>
+
+    <p style="color: #6b7280; font-size: 0.8rem; margin-bottom: 1rem;">
+        配置关键字路由规则，决定用户问题进入哪个处理路径。
+    </p>
+
+    <!-- Add Intent Form -->
+    <div x-show="showAddForm" style="background: var(--surface-secondary); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1rem;">
+        <div class="config-section-title">新建意图规则</div>
+        <div class="form-grid-2">
+            <div>
+                <label for="intentName">Intent Name</label>
+                <input type="text" id="intentName" x-model="newIntent.name" placeholder="e.g. 订单查询">
+            </div>
+            <div>
+                <label for="intentHandler">Handler / Target Skill</label>
+                <input type="text" id="intentHandler" x-model="newIntent.handler" placeholder="e.g. order_query_skill">
+            </div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label for="intentDesc">Description</label>
+            <input type="text" id="intentDesc" x-model="newIntent.description" placeholder="简要描述此意图...">
+        </div>
+        <div class="form-grid-2" style="margin-top: 0.75rem;">
+            <div>
+                <label>Trigger Keywords（按回车添加）</label>
+                <input type="text" placeholder="输入关键字后按回车..."
+                       @keydown.enter.prevent="addKeyword($el.value); $el.value = ''">
+                <div class="keywords-container">
+                    <template x-for="kw in newIntent.keywords" :key="kw">
+                        <span class="keyword-tag">
+                            <span x-text="kw"></span>
+                            <button type="button" @click="removeKeyword(kw)">&times;</button>
+                        </span>
+                    </template>
+                </div>
+            </div>
+            <div>
+                <label for="intentPriority">Priority（越高越优先）</label>
+                <input type="number" id="intentPriority" x-model="newIntent.priority" min="1" max="100" value="10">
+            </div>
+        </div>
+        <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+            <button class="btn btn-primary btn-sm" @click="submitIntent()">添加</button>
+            <button class="btn btn-outline btn-sm" @click="showAddForm = false">取消</button>
+        </div>
+    </div>
+
+    <!-- Intent List Table -->
+    <div style="overflow-x: auto;">
+        <table class="intent-table">
+            <thead>
+                <tr>
+                    <th>Intent Name</th>
+                    <th>Description</th>
+                    <th>Trigger Keywords</th>
+                    <th>Target Skill</th>
+                    <th>Priority</th>
+                    <th>Enabled</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-if="intents.length === 0">
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: #9ca3af; padding: 2rem;">
+                            暂无意图规则，点击上方「添加意图」创建第一条规则
+                        </td>
+                    </tr>
+                </template>
+                <template x-for="(intent, index) in intents" :key="index">
+                    <tr>
+                        <td>
+                            <strong x-text="intent.name || '—'"></strong>
+                        </td>
+                        <td style="color: #6b7280; font-size: 0.8rem;" x-text="intent.description || '—'"></td>
+                        <td>
+                            <div style="display: flex; flex-wrap: wrap; gap: 3px;">
+                                <template x-for="kw in (intent.keywords || [])" :key="kw">
+                                    <span class="keyword-tag" style="font-size: 0.7rem; padding: 2px 7px;">
+                                        <span x-text="kw"></span>
+                                    </span>
+                                </template>
+                            </div>
+                        </td>
+                        <td>
+                            <code style="font-size: 0.75rem; background: var(--surface-tertiary); padding: 1px 5px; border-radius: 4px;"
+                                  x-text="intent.handler || '—'"></code>
+                        </td>
+                        <td>
+                            <span x-text="intent.priority || 10"></span>
+                        </td>
+                        <td>
+                            <label class="switch-label" style="gap: 0.4rem;">
+                                <input type="checkbox" :checked="intent.enabled !== false"
+                                       @change="toggleIntent(index)">
+                            </label>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-ghost" @click="deleteIntent(index)" title="删除"
+                                    style="color: #eb3349; padding: 0.2rem 0.4rem;">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"/>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                                </svg>
+                            </button>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function intentRoutesSection() {
+    return {
+        intents: [],
+        showAddForm: false,
+        newIntent: { name: '', handler: '', description: '', keywords: [], priority: 10, enabled: true },
+        init() {
+            this.loadIntents();
+            document.getElementById('main-panel').addEventListener('section-save', () => this.saveAllIntents());
+        },
+        async loadIntents() {
+            try {
+                const resp = await fetch('/intents');
+                this.intents = await resp.json();
+            } catch(e) {}
+        },
+        addKeyword(kw) {
+            kw = kw.trim();
+            if (kw && !this.newIntent.keywords.includes(kw)) {
+                this.newIntent.keywords.push(kw);
+            }
+        },
+        removeKeyword(kw) {
+            this.newIntent.keywords = this.newIntent.keywords.filter(k => k !== kw);
+        },
+        async submitIntent() {
+            if (!this.newIntent.name.trim() || !this.newIntent.handler.trim()) {
+                const ws = document.querySelector('[x-data]');
+                if (ws && ws.__x) ws.__x.$data.showToast('请填写意图名称和目标技能', 'error');
+                return;
+            }
+            try {
+                await fetch('/intents', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.newIntent),
+                });
+                await this.loadIntents();
+                this.newIntent = { name: '', handler: '', description: '', keywords: [], priority: 10, enabled: true };
+                this.showAddForm = false;
+                const ws = document.querySelector('[x-data]');
+                if (ws && ws.__x) ws.__x.$data.showToast('意图添加成功', 'success');
+            } catch(e) {
+                const ws = document.querySelector('[x-data]');
+                if (ws && ws.__x) ws.__x.$data.showToast('添加失败', 'error');
+            }
+        },
+        async toggleIntent(index) {
+            this.intents[index].enabled = !this.intents[index].enabled;
+            try {
+                await fetch(`/intents/${index}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.intents[index]),
+                });
+            } catch(e) {}
+        },
+        async deleteIntent(index) {
+            if (!confirm('确定要删除此意图规则吗？')) return;
+            try {
+                await fetch(`/intents/${index}`, { method: 'DELETE' });
+                await this.loadIntents();
+                const ws = document.querySelector('[x-data]');
+                if (ws && ws.__x) ws.__x.$data.showToast('已删除', 'success');
+            } catch(e) {}
+        },
+        async saveAllIntents() {
+            // Intent routes save on each individual change; this is a no-op
+            const ws = document.querySelector('[x-data]');
+            if (ws && ws.__x) ws.__x.$data.showToast('意图路由已保存', 'success');
+        },
+    };
+}
+</script>

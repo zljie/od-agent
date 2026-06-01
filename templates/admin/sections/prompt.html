@@ -1,0 +1,121 @@
+<!-- Prompt 配置 -->
+<div class="config-card" x-data="promptSection()">
+    <div class="config-card-header">
+        <h3>Prompt 配置</h3>
+    </div>
+
+    <div class="config-section">
+        <div class="config-section-title">System Prompt</div>
+        <div>
+            <label for="systemPrompt">System Prompt</label>
+            <textarea id="systemPrompt"
+                      x-model="form.system_prompt"
+                      placeholder="Enter system prompt..."
+                      rows="10"></textarea>
+            <p class="field-hint">定义 Agent 的核心角色、行为准则和回复风格</p>
+        </div>
+
+        <div style="margin-top: 0.75rem;">
+            <button class="btn btn-outline btn-sm" @click="showPreview = !showPreview">
+                <span x-text="showPreview ? '收起预览' : '预览 Prompt'"></span>
+            </button>
+        </div>
+
+        <div x-show="showPreview" style="margin-top: 0.75rem;">
+            <div class="schema-area" x-text="form.system_prompt || '（无内容）'"></div>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="config-section">
+        <div class="form-grid-2">
+            <div>
+                <label for="roleDefinition">Role Definition</label>
+                <textarea id="roleDefinition" x-model="form.role_definition" rows="3"
+                          placeholder="定义 Agent 的具体角色定位..."></textarea>
+            </div>
+            <div>
+                <label for="fallbackReply">Fallback Reply</label>
+                <textarea id="fallbackReply" x-model="form.fallback_reply" rows="3"
+                          placeholder="无法回答时的兜底回复..."></textarea>
+            </div>
+        </div>
+
+        <div class="form-grid-2" style="margin-top: 1rem;">
+            <div>
+                <label for="responseStyle">Reply Style</label>
+                <select id="responseStyle" x-model="form.response_style">
+                    <option value="professional">Professional 专业</option>
+                    <option value="friendly">Friendly 友好</option>
+                    <option value="concise">Concise 简洁</option>
+                    <option value="detailed">Detailed 详细</option>
+                    <option value="empathetic">Empathetic 同理心</option>
+                </select>
+            </div>
+            <div>
+                <label for="outputFormat">Output Format</label>
+                <select id="outputFormat" x-model="form.output_format">
+                    <option value="markdown">Markdown</option>
+                    <option value="plain">Plain Text</option>
+                    <option value="json">JSON</option>
+                    <option value="html">HTML</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="config-section">
+        <div class="config-section-title">Safety &amp; Compliance</div>
+        <div>
+            <label for="safetyInstructions">Safety Instructions</label>
+            <textarea id="safetyInstructions" x-model="form.safety_instructions"
+                      rows="4"
+                      placeholder="安全与合规要求，例如：禁止回复涉及政治敏感话题..."></textarea>
+            <p class="field-hint">定义 Agent 必须遵守的安全边界和合规要求</p>
+        </div>
+    </div>
+</div>
+
+<script>
+function promptSection() {
+    return {
+        showPreview: false,
+        form: {
+            system_prompt: '',
+            role_definition: '',
+            fallback_reply: '',
+            response_style: 'professional',
+            output_format: 'markdown',
+            safety_instructions: '',
+        },
+        init() {
+            this.loadConfig();
+            document.getElementById('main-panel').addEventListener('section-save', () => this.saveConfig());
+        },
+        async loadConfig() {
+            try {
+                const resp = await fetch('/config');
+                const data = await resp.json();
+                this.form.system_prompt = data.system_prompt || '';
+            } catch(e) {}
+        },
+        async saveConfig() {
+            try {
+                await fetch('/admin/agents/1/prompt', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.form),
+                });
+                const ws = document.querySelector('[x-data]');
+                if (ws && ws.__x) ws.__x.$data.showToast('Prompt 配置已保存', 'success');
+            } catch(e) {
+                const ws = document.querySelector('[x-data]');
+                if (ws && ws.__x) ws.__x.$data.showToast('保存失败', 'error');
+            }
+        },
+    };
+}
+</script>

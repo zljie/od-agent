@@ -1,0 +1,145 @@
+<!-- 测试与发布 -->
+<div class="config-card" x-data="testPublishSection()">
+    <div class="config-card-header">
+        <h3>测试 Agent</h3>
+        <span class="badge badge-draft">Draft</span>
+    </div>
+
+    <!-- Test Area -->
+    <div class="test-panel">
+        <div class="config-section-title">对话测试</div>
+
+        <div style="margin-bottom: 0.75rem;">
+            <label for="testMessage">测试消息</label>
+            <textarea id="testMessage" x-model="testMessage" rows="3"
+                      placeholder="输入测试消息，例如：我的订单到哪了？"
+                      style="margin-bottom: 0.5rem;"></textarea>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <button class="btn btn-primary" @click="runTest()"
+                        :disabled="!testMessage.trim() || testing">
+                    <span x-show="testing" class="btn-spinner"></span>
+                    <span x-text="testing ? '测试中...' : '发送测试'"></span>
+                </button>
+                <span style="font-size: 0.75rem; color: #9ca3af;"
+                      x-show="testLatency !== null">
+                    耗时: <span x-text="testLatency"></span>ms
+                </span>
+            </div>
+        </div>
+
+        <!-- Test Result -->
+        <div x-show="testResult" class="test-result-area" style="margin-top: 0.75rem;">
+            <span x-text="testResult"></span>
+        </div>
+
+        <div x-show="!testResult && !testing" style="text-align: center; color: #9ca3af; padding: 1.5rem; font-size: 0.8rem;">
+            输入消息后点击「发送测试」，查看 Agent 回复
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Publish Area -->
+    <div>
+        <div class="config-card-header" style="margin-bottom: 1rem;">
+            <h3>发布配置</h3>
+        </div>
+
+        <div class="publish-info-grid">
+            <div class="version-info">
+                <div class="ver-label">Current Version</div>
+                <div class="ver-value" x-text="currentVersion || '—'">v1.0</div>
+            </div>
+            <div class="version-info">
+                <div class="ver-label">Draft Version</div>
+                <div class="ver-value" x-text="draftVersion || '—'">v1.1 (未发布)</div>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 1rem;">
+            <label for="changeSummary">本次变更说明</label>
+            <textarea id="changeSummary" x-model="changeSummary" rows="3"
+                      placeholder="简要描述本次配置变更内容..."></textarea>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" @click="publish()"
+                    :disabled="publishing">
+                <span x-show="publishing" class="btn-spinner"></span>
+                <span x-text="publishing ? '发布中...' : '发布上线'"></span>
+            </button>
+            <button class="btn btn-outline" disabled style="opacity: 0.5;" title="Coming soon">
+                回滚历史版本
+            </button>
+        </div>
+
+        <div x-show="publishResult" style="margin-top: 0.75rem;" :class="'toast toast-' + publishResultType">
+            <span x-text="publishResult"></span>
+        </div>
+    </div>
+</div>
+
+<script>
+function testPublishSection() {
+    return {
+        testMessage: '',
+        testResult: null,
+        testLatency: null,
+        testing: false,
+        currentVersion: 'v1.0',
+        draftVersion: 'v1.1 (未发布)',
+        changeSummary: '',
+        publishing: false,
+        publishResult: null,
+        publishResultType: 'success',
+
+        async runTest() {
+            if (!this.testMessage.trim()) return;
+            this.testing = true;
+            this.testResult = null;
+            const start = Date.now();
+            try {
+                const resp = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: this.testMessage, stream: false}),
+                });
+                const data = await resp.json();
+                this.testResult = data.response || '(empty response)';
+                this.testLatency = Date.now() - start;
+            } catch(e) {
+                this.testResult = 'Error: ' + e.message;
+                this.testLatency = null;
+            }
+            this.testing = false;
+        },
+
+        async publish() {
+            if (!confirm('发布后配置将影响线上所有用户。确定要发布吗？')) return;
+            this.publishing = true;
+            this.publishResult = null;
+            try {
+                const resp = await fetch('/admin/agents/1/publish', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({change_summary: this.changeSummary}),
+                });
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    this.publishResult = '发布成功！当前版本: ' + (data.version || 'v1.x');
+                    this.publishResultType = 'success';
+                    const ws = document.querySelector('[x-data]');
+                    if (ws && ws.__x) ws.__x.$data.agent.status = 'published';
+                } else {
+                    this.publishResult = '发布失败: ' + (data.message || '未知错误');
+                    this.publishResultType = 'error';
+                }
+            } catch(e) {
+                this.publishResult = '发布失败: ' + e.message;
+                this.publishResultType = 'error';
+            }
+            this.publishing = false;
+        },
+    };
+}
+</script>

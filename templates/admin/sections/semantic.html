@@ -1,0 +1,224 @@
+<!-- 知识与语义配置 -->
+<div class="config-card" x-data="semanticSection()">
+    <div class="config-card-header">
+        <h3>知识与语义配置</h3>
+        <span class="badge badge-active">Demo Mode</span>
+    </div>
+
+    <p style="color: #6b7280; font-size: 0.8rem; margin-bottom: 1rem;">
+        配置 OSI 语义本体模型、GraphQL 端点和 MCP 工具注册表。
+    </p>
+
+    <!-- Model Config -->
+    <div class="config-section">
+        <div class="config-section-title">Model Configuration</div>
+        <div class="form-grid-2">
+            <div>
+                <label for="osiYamlPath">OSI Model YAML Path</label>
+                <input type="text" id="osiYamlPath" x-model="form.yaml_path"
+                       placeholder="/path/to/semantic_model.yaml">
+                <p class="field-hint">留空使用内置 Demo 模型（Supplier / PurchaseOrder / Material）</p>
+            </div>
+            <div>
+                <label for="graphqlEndpoint">GraphQL Endpoint</label>
+                <input type="text" id="graphqlEndpoint" x-model="form.graphql_endpoint"
+                       placeholder="http://localhost:4000/graphql">
+                <p class="field-hint">可选，用于实时 GraphQL 执行（Apollo/Cosmo）</p>
+            </div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label class="switch-label">
+                <input type="checkbox" x-model="form.use_demo">
+                <span>使用 Demo 模型（Supplier / PurchaseOrder / Material）</span>
+            </label>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Action Buttons -->
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button class="btn btn-primary btn-sm" @click="saveConfig()"
+                :disabled="saving">
+            <span x-show="saving" class="btn-spinner"></span>
+            <span x-text="saving ? '保存中...' : '保存配置'"></span>
+        </button>
+        <button class="btn btn-secondary btn-sm" @click="reloadBackend()"
+                :disabled="reloading">
+            <span x-show="reloading" class="btn-spinner"></span>
+            <span x-text="reloading ? '重载中...' : '重载后端'"></span>
+        </button>
+        <button class="btn btn-outline btn-sm" @click="loadSchema()"
+                :disabled="loading">
+            刷新 Schema
+        </button>
+    </div>
+
+    <!-- Status Toast -->
+    <div x-show="statusMsg" :class="'toast toast-' + statusType" style="margin-top: 0.5rem; position: static; animation: none; max-width: 100%;">
+        <span x-text="statusMsg"></span>
+        <button class="toast-close" @click="statusMsg = ''">&times;</button>
+    </div>
+
+    <!-- MCP Tools -->
+    <hr class="section-divider">
+    <div class="config-section">
+        <div class="config-section-title">MCP Tools</div>
+        <template x-if="tools.length === 0 && !loading">
+            <p class="empty-state" style="padding: 1rem;">No MCP tools registered.</p>
+        </template>
+        <template x-for="tool in tools" :key="tool.name">
+            <div style="background: var(--surface-secondary); border-radius: var(--radius-md); padding: 0.875rem 1rem; margin-bottom: 0.5rem; border-left: 3px solid var(--brand-color);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <strong style="font-size: 0.85rem;" x-text="tool.name"></strong>
+                    <span style="font-size: 0.7rem; background: var(--brand-soft); color: var(--brand-color); padding: 2px 8px; border-radius: var(--radius-pill);"
+                          x-text="tool.dataset || 'general'"></span>
+                </div>
+                <p style="font-size: 0.75rem; color: #6b7280; margin: 4px 0 0;" x-text="tool.description || 'No description'"></p>
+            </div>
+        </template>
+    </div>
+
+    <!-- GraphQL SDL -->
+    <hr class="section-divider">
+    <div class="config-section">
+        <div class="config-section-title">GraphQL SDL（只读）</div>
+        <div class="schema-area" x-text="schema || '点击「刷新 Schema」加载...'" style="max-height: 250px;"></div>
+    </div>
+
+    <!-- Semantic Search Test -->
+    <hr class="section-divider">
+    <div class="test-panel">
+        <h3 style="font-size: 0.875rem; font-weight: 700; margin-bottom: 0.75rem;">语义搜索测试</h3>
+        <div style="display: flex; gap: 0.5rem;">
+            <input type="text" x-model="searchQuery" placeholder="输入自然语言查询，例如：查一下供应商的采购情况"
+                   @keydown.enter.prevent="testSearch()"
+                   style="flex: 1; margin: 0;">
+            <button class="btn btn-secondary btn-sm" @click="testSearch()"
+                    :disabled="!searchQuery.trim() || searching">
+                <span x-show="searching" class="btn-spinner"></span>
+                <span x-text="searching ? '搜索中...' : '测试搜索'"></span>
+            </button>
+        </div>
+        <template x-if="searchResults.length > 0">
+            <div style="margin-top: 0.75rem;">
+                <template x-for="(r, idx) in searchResults" :key="idx">
+                    <div style="background: var(--surface-secondary); border-radius: var(--radius-md); padding: 0.875rem 1rem; margin-bottom: 0.5rem; border-left: 3px solid var(--brand-color);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <strong style="font-size: 0.85rem;">
+                                <span x-text="r.operation_type || 'query'"></span> : <span x-text="r.dataset"></span>.<span x-text="r.field_name"></span>
+                            </strong>
+                            <div class="score-bar-wrapper">
+                                <div class="score-bar">
+                                    <div class="score-fill" :style="'width: ' + (r.score * 100) + '%'"></div>
+                                </div>
+                                <span class="score-value" x-text="(r.score * 100).toFixed(0) + '%'"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+        <div x-show="searchError" style="color: var(--error-color); font-size: 0.8rem; margin-top: 0.5rem;" x-text="searchError"></div>
+    </div>
+</div>
+
+<script>
+function semanticSection() {
+    return {
+        form: { yaml_path: '', graphql_endpoint: '', use_demo: true },
+        schema: '',
+        tools: [],
+        searchQuery: '',
+        searchResults: [],
+        searchError: '',
+        saving: false,
+        reloading: false,
+        loading: false,
+        searching: false,
+        statusMsg: '',
+        statusType: 'success',
+        init() {
+            this.loadConfig();
+            this.loadSchema();
+            this.loadTools();
+            document.getElementById('main-panel').addEventListener('section-save', () => this.saveConfig());
+        },
+        async loadConfig() {
+            try {
+                const resp = await fetch('/semantic/config');
+                this.form = await resp.json();
+            } catch(e) {}
+        },
+        async loadSchema() {
+            this.loading = true;
+            try {
+                const resp = await fetch('/semantic/schema');
+                const data = await resp.json();
+                this.schema = data.schema || '';
+            } catch(e) {}
+            this.loading = false;
+        },
+        async loadTools() {
+            try {
+                const resp = await fetch('/semantic/tools');
+                const data = await resp.json();
+                this.tools = data.tools || [];
+            } catch(e) {}
+        },
+        async saveConfig() {
+            this.saving = true;
+            try {
+                await fetch('/semantic/config', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.form),
+                });
+                this.statusMsg = 'Semantic config saved!';
+                this.statusType = 'success';
+                this.loadConfig();
+            } catch(e) {
+                this.statusMsg = '保存失败: ' + e.message;
+                this.statusType = 'error';
+            }
+            this.saving = false;
+        },
+        async reloadBackend() {
+            this.reloading = true;
+            try {
+                await fetch('/semantic/reload', { method: 'POST' });
+                await this.loadSchema();
+                await this.loadTools();
+                this.statusMsg = 'Semantic backend reloaded!';
+                this.statusType = 'success';
+            } catch(e) {
+                this.statusMsg = '重载失败: ' + e.message;
+                this.statusType = 'error';
+            }
+            this.reloading = false;
+        },
+        async testSearch() {
+            if (!this.searchQuery.trim()) return;
+            this.searching = true;
+            this.searchError = '';
+            this.searchResults = [];
+            try {
+                const resp = await fetch('/semantic/search', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({query: this.searchQuery}),
+                });
+                const data = await resp.json();
+                if (data.success && data.metadata && data.metadata.all_results) {
+                    this.searchResults = data.metadata.all_results;
+                } else {
+                    this.searchError = data.response || 'No results found';
+                }
+            } catch(e) {
+                this.searchError = 'Search failed: ' + e.message;
+            }
+            this.searching = false;
+        },
+    };
+}
+</script>

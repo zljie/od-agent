@@ -1,0 +1,240 @@
+<!-- 模型配置 -->
+<div class="config-card" x-data="modelSection()">
+    <div class="config-card-header">
+        <h3>LLM Provider &amp; Model</h3>
+        <span class="badge badge-active">API Ready</span>
+    </div>
+
+    <div class="config-section">
+        <div class="config-section-title">Provider &amp; Model</div>
+        <div class="form-grid-2">
+            <div>
+                <label for="providerSelect">Provider</label>
+                <select id="providerSelect" x-model="form.provider_id" @change="onProviderChange()">
+                    <template x-for="p in providers" :key="p.id">
+                        <option :value="p.id" x-text="p.name"></option>
+                    </template>
+                </select>
+                <p class="field-hint" x-text="currentProvider?.description || ''"></p>
+            </div>
+            <div>
+                <template x-if="currentProvider && currentProvider.models.length > 0">
+                    <div>
+                        <label for="modelSelect">Model</label>
+                        <select id="modelSelect" x-model="form.model_name" @change="onModelChange()">
+                            <template x-for="m in currentProvider.models" :key="m.id">
+                                <option :value="m.id" x-text="m.name"></option>
+                            </template>
+                        </select>
+                        <p class="field-hint" x-text="currentModel?.description || ''"></p>
+                    </div>
+                </template>
+                <template x-if="!currentProvider || currentProvider.models.length === 0">
+                    <div>
+                        <label for="customModelInput">Model ID</label>
+                        <input type="text" id="customModelInput" x-model="form.model_name" placeholder="e.g. deepseek-reasoner">
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <div style="margin-top: 1rem;">
+            <label for="baseUrl">API Base URL</label>
+            <div class="url-input-wrapper">
+                <input type="text" id="baseUrl" x-model="form.base_url" placeholder="https://api.deepseek.com/v1">
+                <button class="btn btn-outline btn-sm" @click="resetBaseUrl()">Reset</button>
+            </div>
+            <p class="field-hint">
+                API Key 从环境变量读取，页面不展示真实密钥
+                (<code>DEEPSEEK_API_KEY</code> / <code>OPENAI_API_KEY</code>)
+            </p>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="config-section">
+        <div class="config-section-title">Generation Parameters</div>
+        <div class="form-grid-4">
+            <div>
+                <label for="temperature">Temperature</label>
+                <input type="number" id="temperature" x-model="form.temperature"
+                       min="0" max="2" step="0.05">
+                <p class="field-hint">控制随机性，越低越专注</p>
+            </div>
+            <div>
+                <label for="topP">Top P</label>
+                <input type="number" id="topP" x-model="form.top_p"
+                       min="0" max="1" step="0.05">
+                <p class="field-hint">核采样阈值</p>
+            </div>
+            <div>
+                <label for="topK">Top K</label>
+                <input type="number" id="topK" x-model="form.top_k"
+                       min="0" max="100" step="1">
+                <p class="field-hint">0 = 禁用</p>
+            </div>
+            <div>
+                <label for="maxTokens">Max Tokens</label>
+                <input type="number" id="maxTokens" x-model="form.max_tokens"
+                       min="100" max="32000">
+                <p class="field-hint">最大输出长度</p>
+            </div>
+        </div>
+
+        <div class="form-grid-3" style="margin-top: 1rem;">
+            <div>
+                <label for="presencePenalty">Presence Penalty</label>
+                <input type="number" id="presencePenalty" x-model="form.presence_penalty"
+                       min="-2" max="2" step="0.1">
+                <p class="field-hint">鼓励新话题 (-2 ~ 2)</p>
+            </div>
+            <div>
+                <label for="frequencyPenalty">Frequency Penalty</label>
+                <input type="number" id="frequencyPenalty" x-model="form.frequency_penalty"
+                       min="-2" max="2" step="0.1">
+                <p class="field-hint">减少重复 (-2 ~ 2)</p>
+            </div>
+            <div>
+                <label for="seed">Seed</label>
+                <input type="number" id="seed" x-model="form.seed"
+                       placeholder="留空则随机">
+                <p class="field-hint">固定种子用于复现</p>
+            </div>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="config-section">
+        <div class="config-section-title">Advanced</div>
+        <div class="form-grid-2">
+            <div>
+                <label for="timeout">Timeout (秒)</label>
+                <input type="number" id="timeout" x-model="form.timeout" min="10" max="300" step="10">
+                <p class="field-hint">请求超时时间</p>
+            </div>
+            <div>
+                <label for="retryCount">Retry Count</label>
+                <input type="number" id="retryCount" x-model="form.retry_count" min="0" max="5">
+                <p class="field-hint">失败重试次数</p>
+            </div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label class="switch-label">
+                <input type="checkbox" x-model="form.streaming_enabled" checked>
+                <span>启用流式输出（Streaming）</span>
+            </label>
+        </div>
+    </div>
+
+    <!-- Thinking Mode -->
+    <template x-if="supportsThinking()">
+        <div>
+            <hr class="section-divider">
+            <div class="thinking-panel">
+                <label class="switch-label">
+                    <input type="checkbox" x-model="form.thinking">
+                    <span>Enable Thinking Mode</span>
+                </label>
+                <p class="field-hint" style="margin-top: 8px;">
+                    启用后模型会输出推理链后再给出最终答案，提升复杂问题准确性。
+                </p>
+                <div style="margin-top: 0.75rem;" x-show="form.thinking">
+                    <label for="thinkingBudget">Thinking Budget</label>
+                    <input type="number" id="thinkingBudget" x-model="form.thinking_budget"
+                           min="100" max="8000" step="100" style="max-width: 200px;">
+                    <p class="field-hint">推理链最大 Token 数</p>
+                </div>
+            </div>
+        </div>
+    </template>
+</div>
+
+<script>
+function modelSection() {
+    return {
+        form: {
+            provider_id: 'deepseek',
+            model_name: 'deepseek-chat',
+            base_url: 'https://api.deepseek.com/v1',
+            temperature: 0.7,
+            max_tokens: 2000,
+            top_p: 1.0,
+            top_k: 0,
+            presence_penalty: 0.0,
+            frequency_penalty: 0.0,
+            seed: null,
+            timeout: 60,
+            retry_count: 3,
+            streaming_enabled: true,
+            thinking: false,
+            thinking_budget: 4000,
+        },
+        providers: [],
+        init() {
+            this.loadConfig();
+            this.loadProviders();
+            document.getElementById('main-panel').addEventListener('section-save', () => this.saveModel());
+        },
+        async loadConfig() {
+            try {
+                const resp = await fetch('/config');
+                const data = await resp.json();
+                this.form.provider_id = data.provider_id || 'deepseek';
+                this.form.model_name = data.model_name || 'deepseek-chat';
+                this.form.base_url = data.base_url || '';
+                this.form.temperature = data.temperature ?? 0.7;
+                this.form.max_tokens = data.max_tokens ?? 2000;
+                this.form.top_p = data.top_p ?? 1.0;
+                this.form.top_k = data.top_k ?? 0;
+                this.form.presence_penalty = data.presence_penalty ?? 0.0;
+                this.form.frequency_penalty = data.frequency_penalty ?? 0.0;
+                this.form.seed = data.seed ?? null;
+                this.form.thinking = data.thinking ?? false;
+                this.form.thinking_budget = data.thinking_budget ?? 4000;
+            } catch(e) {}
+        },
+        async loadProviders() {
+            try {
+                const resp = await fetch('/models');
+                const data = await resp.json();
+                this.providers = data.providers || [];
+            } catch(e) {}
+        },
+        get currentProvider() {
+            return this.providers.find(p => p.id === this.form.provider_id) || null;
+        },
+        get currentModel() {
+            const p = this.currentProvider;
+            if (!p) return null;
+            return p.models.find(m => m.id === this.form.model_name) || null;
+        },
+        onProviderChange() {
+            const p = this.currentProvider;
+            if (p && p.models.length > 0) {
+                this.form.model_name = p.models[0].id;
+            }
+            if (p) {
+                this.form.base_url = p.default_base_url || this.form.base_url;
+            }
+            if (p && !p.supports_thinking) {
+                this.form.thinking = false;
+            }
+        },
+        onModelChange() {
+            const m = this.currentModel;
+            if (m && !m.supports_thinking) {
+                this.form.thinking = false;
+            }
+        },
+        resetBaseUrl() {
+            const p = this.currentProvider;
+            if (p) this.form.base_url = p.default_base_url;
+        },
+        supportsThinking() {
+            return !!(this.currentProvider && this.currentProvider.supports_thinking);
+        },
+    };
+}
+</script>

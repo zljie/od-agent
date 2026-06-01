@@ -1,0 +1,118 @@
+<!-- Skills / 技能管理 -->
+<div class="config-card" x-data="skillsSection()">
+    <div class="config-card-header">
+        <h3>Registered Skills</h3>
+        <button class="btn btn-sm btn-outline" @click="loadSkills()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            刷新
+        </button>
+    </div>
+
+    <p style="color: #6b7280; font-size: 0.8rem; margin-bottom: 1rem;">
+        Skills 是 Agent 可调用的能力单元，根据意图路由自动触发执行。
+    </p>
+
+    <!-- Skill Cards -->
+    <template x-if="skills.length === 0 && !loading">
+        <div class="empty-state">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 0.75rem; display: block; opacity: 0.3;">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                <polyline points="2 17 12 22 22 17"/>
+                <polyline points="2 12 12 17 22 12"/>
+            </svg>
+            No skills registered.
+        </div>
+    </template>
+
+    <template x-for="skill in skills" :key="skill.name">
+        <div class="skill-card">
+            <div class="skill-card-header">
+                <h4 x-text="skill.name"></h4>
+                <span class="badge badge-active">Active</span>
+            </div>
+            <p x-text="skill.description || 'No description'"></p>
+            <div class="skill-card-meta">
+                <span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle;">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                    </svg>
+                    Priority: <span x-text="skill.priority || 10"></span>
+                </span>
+                <span>
+                    Keywords: <span x-text="skill.keywords_count || 0"></span>
+                </span>
+            </div>
+            <div class="skill-card-actions">
+                <button class="btn btn-sm btn-outline" @click="testSkill(skill.name)">Test</button>
+                <button class="btn btn-sm btn-outline" disabled style="opacity: 0.4;" title="Edit — coming soon">Edit</button>
+            </div>
+        </div>
+    </template>
+
+    <!-- Skill Detection Test Area -->
+    <hr class="section-divider">
+    <div class="test-panel">
+        <h3 style="font-size: 0.875rem; font-weight: 700; margin-bottom: 0.75rem;">Skill Detection Test</h3>
+        <div style="display: flex; gap: 0.5rem;">
+            <input type="text" x-model="testMessage" placeholder="输入测试消息，检测技能触发..."
+                   @keydown.enter.prevent="testSkillDetection()"
+                   style="flex: 1; margin: 0;">
+            <button class="btn btn-secondary" @click="testSkillDetection()"
+                    :disabled="!testMessage.trim()">检测</button>
+        </div>
+        <div x-show="testResult !== null" class="test-result-area" style="margin-top: 0.75rem;">
+            <span x-text="testResult || '—'"></span>
+        </div>
+    </div>
+</div>
+
+<script>
+function skillsSection() {
+    return {
+        skills: [],
+        loading: false,
+        testMessage: '',
+        testResult: null,
+        init() {
+            this.loadSkills();
+        },
+        async loadSkills() {
+            this.loading = true;
+            try {
+                const resp = await fetch('/skills');
+                const data = await resp.json();
+                this.skills = data.skills || [];
+            } catch(e) {}
+            this.loading = false;
+        },
+        async testSkillDetection() {
+            if (!this.testMessage.trim()) return;
+            this.testResult = '检测中...';
+            try {
+                const resp = await fetch('/skills/detect', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: this.testMessage}),
+                });
+                const data = await resp.json();
+                if (data.detected || data.matched) {
+                    this.testResult = `命中的技能: ${data.intent || data.matched}\nHandler: ${data.handler || data.matched_keyword || '—'}`;
+                } else {
+                    this.testResult = '未检测到匹配的技能';
+                }
+            } catch(e) {
+                this.testResult = '检测失败: ' + e.message;
+            }
+        },
+        async testSkill(skillName) {
+            const msg = prompt(`测试 ${skillName}，请输入测试消息：`);
+            if (!msg) return;
+            this.testMessage = msg;
+            await this.testSkillDetection();
+        },
+    };
+}
+</script>

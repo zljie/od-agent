@@ -1,0 +1,153 @@
+<!-- 基础信息配置 -->
+<div class="config-card" x-data="basicSection()">
+    <div class="config-card-header">
+        <h3>Agent 身份信息</h3>
+    </div>
+
+    <div class="config-section">
+        <div class="form-grid-2">
+            <div>
+                <label for="agentName">Agent Name</label>
+                <input type="text" id="agentName" x-model="form.agent_name" placeholder="OD_Assistant" required>
+                <p class="field-hint">唯一标识，建议只允许字母、数字、下划线</p>
+            </div>
+            <div>
+                <label for="displayName">Display Name</label>
+                <input type="text" id="displayName" x-model="form.display_name" placeholder="OD Assistant">
+                <p class="field-hint">对外展示名称</p>
+            </div>
+        </div>
+
+        <div style="margin-top: 1rem;">
+            <label for="agentDescription">Agent Description</label>
+            <textarea id="agentDescription" x-model="form.description" placeholder="简要描述 Agent 的能力..." rows="2"></textarea>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="config-section">
+        <div class="config-section-title">业务场景</div>
+        <div class="form-grid-2">
+            <div>
+                <label for="businessScenario">Business Scenario</label>
+                <select id="businessScenario" x-model="form.scenario">
+                    <option value="">-- 选择场景 --</option>
+                    <option value="ecommerce">电商客服</option>
+                    <option value="after_sales">售后咨询</option>
+                    <option value="order_query">订单查询</option>
+                    <option value="general">通用场景</option>
+                </select>
+            </div>
+            <div>
+                <label for="owner">Owner</label>
+                <input type="text" id="owner" x-model="form.owner" placeholder="负责人">
+            </div>
+        </div>
+        <div class="form-grid-2" style="margin-top: 1rem;">
+            <div>
+                <label for="defaultLanguage">Default Language</label>
+                <select id="defaultLanguage" x-model="form.default_language">
+                    <option value="zh-CN">中文 (简体)</option>
+                    <option value="zh-TW">中文 (繁體)</option>
+                    <option value="en">English</option>
+                    <option value="ja">日本語</option>
+                </select>
+            </div>
+            <div>
+                <label for="timezone">Timezone</label>
+                <select id="timezone" x-model="form.timezone">
+                    <option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</option>
+                    <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
+                    <option value="America/New_York">America/New_York (UTC-5)</option>
+                    <option value="Europe/London">Europe/London (UTC+0)</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="config-section">
+        <div class="config-section-title">默认行为设置</div>
+        <div class="form-grid-2">
+            <div>
+                <label for="responseStyle">Reply Style</label>
+                <select id="responseStyle" x-model="form.response_style">
+                    <option value="professional">Professional 专业</option>
+                    <option value="friendly">Friendly 友好</option>
+                    <option value="concise">Concise 简洁</option>
+                    <option value="detailed">Detailed 详细</option>
+                </select>
+            </div>
+            <div>
+                <label for="memoryPolicy">Memory Policy</label>
+                <select id="memoryPolicy" x-model="form.memory_policy">
+                    <option value="session">Session（会话级）</option>
+                    <option value="short_term">Short-term（短期记忆）</option>
+                    <option value="long_term">Long-term（长期记忆）</option>
+                    <option value="none">None（无记忆）</option>
+                </select>
+            </div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label class="switch-label">
+                <input type="checkbox" x-model="form.conversation_log_enabled" checked>
+                <span>启用对话日志（Conversation Log）</span>
+            </label>
+        </div>
+    </div>
+</div>
+
+<script>
+function basicSection() {
+    return {
+        form: {
+            agent_name: '',
+            display_name: '',
+            description: '',
+            scenario: '',
+            owner: '',
+            default_language: 'zh-CN',
+            timezone: 'Asia/Shanghai',
+            response_style: 'professional',
+            memory_policy: 'session',
+            conversation_log_enabled: true,
+        },
+        init() {
+            this.loadConfig();
+            document.getElementById('main-panel').addEventListener('section-save', () => this.saveConfig());
+        },
+        async loadConfig() {
+            try {
+                const resp = await fetch('/config');
+                const data = await resp.json();
+                this.form.agent_name = data.agent_name || '';
+                this.form.display_name = data.display_name || data.agent_name || '';
+                this.form.description = data.description || '';
+                this.form.scenario = data.scenario || '';
+                this.form.owner = data.owner || '';
+                this.form.default_language = data.default_language || 'zh-CN';
+                this.form.timezone = data.timezone || 'Asia/Shanghai';
+                this.form.response_style = data.response_style || 'professional';
+                this.form.memory_policy = data.memory_policy || 'session';
+                this.form.conversation_log_enabled = data.conversation_log_enabled !== false;
+            } catch(e) {}
+        },
+        async saveConfig() {
+            try {
+                const resp = await fetch('/admin/agents/1/basic', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.form),
+                });
+                const ws = document.querySelector('[x-data]');
+                if (ws && ws.__x) ws.__x.$data.showToast('基础信息已保存', 'success');
+            } catch(e) {
+                const ws = document.querySelector('[x-data]');
+                if (ws && ws.__x) ws.__x.$data.showToast('保存失败', 'error');
+            }
+        },
+    };
+}
+</script>

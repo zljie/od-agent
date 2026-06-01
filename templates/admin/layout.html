@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OD Assistant Admin</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+</head>
+<body>
+
+<div class="admin-shell" x-data="adminWorkspace()">
+
+    <!-- ── Left Sidebar ──────────────────────────────────────── -->
+    <aside class="admin-sidebar">
+        <div style="padding: 1.25rem 1.25rem 0.75rem; border-bottom: 1px solid var(--border-soft);">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--brand-color); letter-spacing: 0.04em;">
+                OD Assistant
+            </div>
+            <div style="font-size: 0.72rem; color: #9ca3af; margin-top: 2px;">Agent 配置工作台</div>
+        </div>
+
+        <!-- Section: 配置管理 -->
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">配置管理</div>
+            <ul class="sidebar-nav">
+                <li class="sidebar-nav-item">
+                    <a href="#"
+                       hx-get="/admin/agents/1/sections/basic"
+                       hx-target="#main-panel"
+                       hx-swap="innerHTML show:top"
+                       :class="{ 'active': activeSection === 'basic' }"
+                       @click="activeSection = 'basic'">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        </span>
+                        基础信息
+                    </a>
+                </li>
+                <li class="sidebar-nav-item">
+                    <a href="#"
+                       hx-get="/admin/agents/1/sections/model"
+                       hx-target="#main-panel"
+                       hx-swap="innerHTML show:top"
+                       :class="{ 'active': activeSection === 'model' }"
+                       @click="activeSection = 'model'">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        </span>
+                        模型配置
+                    </a>
+                </li>
+                <li class="sidebar-nav-item">
+                    <a href="#"
+                       hx-get="/admin/agents/1/sections/prompt"
+                       hx-target="#main-panel"
+                       hx-swap="innerHTML show:top"
+                       :class="{ 'active': activeSection === 'prompt' }"
+                       @click="activeSection = 'prompt'">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        </span>
+                        Prompt 配置
+                    </a>
+                </li>
+                <li class="sidebar-nav-item">
+                    <a href="#"
+                       hx-get="/admin/agents/1/sections/intent_routes"
+                       hx-target="#main-panel"
+                       hx-swap="innerHTML show:top"
+                       :class="{ 'active': activeSection === 'intent_routes' }"
+                       @click="activeSection = 'intent_routes'">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        </span>
+                        意图路由
+                    </a>
+                </li>
+                <li class="sidebar-nav-item">
+                    <a href="#"
+                       hx-get="/admin/agents/1/sections/skills"
+                       hx-target="#main-panel"
+                       hx-swap="innerHTML show:top"
+                       :class="{ 'active': activeSection === 'skills' }"
+                       @click="activeSection = 'skills'">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                        </span>
+                        Skills / 技能
+                    </a>
+                </li>
+                <li class="sidebar-nav-item">
+                    <a href="#"
+                       hx-get="/admin/agents/1/sections/semantic"
+                       hx-target="#main-panel"
+                       hx-swap="innerHTML show:top"
+                       :class="{ 'active': activeSection === 'semantic' }"
+                       @click="activeSection = 'semantic'">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </span>
+                        知识与语义
+                    </a>
+                </li>
+                <li class="sidebar-nav-item">
+                    <a href="#"
+                       hx-get="/admin/agents/1/sections/test_publish"
+                       hx-target="#main-panel"
+                       hx-swap="innerHTML show:top"
+                       :class="{ 'active': activeSection === 'test_publish' }"
+                       @click="activeSection = 'test_publish'">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        </span>
+                        测试与发布
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Section: 运维管理 (P2, static links for now) -->
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">运维管理</div>
+            <ul class="sidebar-nav">
+                <li class="sidebar-nav-item">
+                    <a href="#" class="text-muted" style="cursor: not-allowed; opacity: 0.5;" title="Coming soon">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </span>
+                        运行日志
+                    </a>
+                </li>
+                <li class="sidebar-nav-item">
+                    <a href="#" class="text-muted" style="cursor: not-allowed; opacity: 0.5;" title="Coming soon">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        </span>
+                        配置版本
+                    </a>
+                </li>
+                <li class="sidebar-nav-item">
+                    <a href="#" class="text-muted" style="cursor: not-allowed; opacity: 0.5;" title="Coming soon">
+                        <span class="nav-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        </span>
+                        访问控制
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Sidebar footer -->
+        <div style="margin-top: auto; padding: 1rem 1.25rem; border-top: 1px solid var(--border-soft);">
+            <a href="/" style="font-size: 0.78rem; color: #9ca3af; text-decoration: none; display: flex; align-items: center; gap: 0.4rem;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                返回首页
+            </a>
+        </div>
+    </aside>
+
+    <!-- ── Main Content ───────────────────────────────────────── -->
+    <main class="admin-main">
+
+        <!-- Top Header Bar -->
+        {% include 'admin/partials/admin_header.html' %}
+
+        <!-- Agent Summary Bar -->
+        {% include 'admin/partials/agent_summary_bar.html' %}
+
+        <!-- Workspace: main panel + right panel -->
+        <div class="workspace-grid">
+            <!-- Left 2/3: Main Config Panel (content swapped by HTMX) -->
+            <div id="main-panel" hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
+                <!-- Content injected here by HTMX navigation -->
+                <div style="display: flex; align-items: center; justify-content: center; height: 200px; color: #9ca3af; font-size: 0.875rem;">
+                    加载中...
+                </div>
+            </div>
+
+            <!-- Right 1/3: Summary Panel -->
+            <aside>
+                {% include 'admin/partials/right_summary.html' %}
+            </aside>
+        </div>
+
+        <!-- Bottom Action Bar -->
+        {% include 'admin/partials/bottom_action_bar.html' %}
+
+    </main>
+
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container" class="toast-container"></div>
+
+<script>
+function adminWorkspace() {
+    return {
+        activeSection: 'basic',
+
+        // Agent config state (loaded from /config)
+        agent: {
+            name: 'OD_Assistant',
+            displayName: 'OD Assistant',
+            status: 'draft',
+            provider: 'DeepSeek',
+            model: 'DeepSeek V3',
+            apiReady: true,
+            lastSaved: null,
+        },
+
+        // Toast notifications
+        showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `
+                <span>${message}</span>
+                <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        },
+
+        // Load initial section
+        init() {
+            // Load initial section
+            htmx.ajax('GET', '/admin/agents/1/sections/basic', {
+                target: '#main-panel',
+                swap: 'innerHTML',
+            });
+            // Load agent config
+            this.loadAgentConfig();
+        },
+
+        async loadAgentConfig() {
+            try {
+                const resp = await fetch('/config');
+                const data = await resp.json();
+                this.agent.name = data.agent_name || 'OD_Assistant';
+                this.agent.displayName = data.agent_name || 'OD_Assistant';
+                this.agent.provider = data.provider_id || 'DeepSeek';
+                this.agent.model = data.model_name || 'DeepSeek V3';
+            } catch (e) {
+                // silently fail — use defaults
+            }
+        },
+
+        // Bottom action bar handlers
+        async resetForm() {
+            if (confirm('确定要重置当前页面的修改吗？')) {
+                htmx.ajax('GET', `/admin/agents/1/sections/${this.activeSection}`, {
+                    target: '#main-panel',
+                    swap: 'innerHTML',
+                });
+            }
+        },
+
+        async saveDraft() {
+            // Trigger save on active section form
+            const form = document.querySelector(`#main-panel form[data-section="${this.activeSection}"]`);
+            if (form) {
+                htmx.trigger(form, 'submit');
+            }
+            this.showToast('草稿已保存', 'success');
+        },
+
+        async testAgent() {
+            // Navigate to test section
+            this.activeSection = 'test_publish';
+            htmx.ajax('GET', '/admin/agents/1/sections/test_publish', {
+                target: '#main-panel',
+                swap: 'innerHTML',
+            });
+        },
+
+        async publish() {
+            if (!confirm('发布后配置将影响线上所有用户。确定要发布吗？')) return;
+            try {
+                const resp = await fetch('/admin/agents/1/publish', { method: 'POST' });
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    this.agent.status = 'published';
+                    this.showToast('发布成功！', 'success');
+                } else {
+                    this.showToast('发布失败：' + (data.message || '未知错误'), 'error');
+                }
+            } catch (e) {
+                this.showToast('发布失败：' + e.message, 'error');
+            }
+        },
+    };
+}
+
+// Custom event bus: bottom bar → active section
+// Dispatch a 'section-save' event on the main-panel element; the active
+// section's Alpine component listens and triggers its own save logic.
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    // Re-wire bottom-bar buttons to the newly swapped section
+    wireBottomBar();
+});
+
+function wireBottomBar() {
+    const ws = document.querySelector('[x-data]');
+    if (!ws || !ws.__x) return;
+    const data = ws.__x.$data;
+
+    // Save Draft → dispatch save event to active section
+    const saveBtn = document.querySelector('[data-action="save-draft"]');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function() {
+            const panel = document.getElementById('main-panel');
+            panel.dispatchEvent(new CustomEvent('section-save'));
+            data.showToast('草稿已保存', 'success');
+            // Update last saved time
+            data.agent.lastSaved = '刚刚';
+        });
+    }
+
+    // Reset → reload current section
+    const resetBtn = document.querySelector('[data-action="reset-form"]');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            if (confirm('确定要重置当前页面的修改吗？')) {
+                htmx.ajax('GET', `/admin/agents/1/sections/${data.activeSection}`, {
+                    target: '#main-panel',
+                    swap: 'innerHTML',
+                });
+            }
+        });
+    }
+
+    // Test → navigate to test section
+    const testBtn = document.querySelector('[data-action="test-agent"]');
+    if (testBtn) {
+        testBtn.addEventListener('click', function() {
+            data.activeSection = 'test_publish';
+            htmx.ajax('GET', '/admin/agents/1/sections/test_publish', {
+                target: '#main-panel',
+                swap: 'innerHTML',
+            });
+        });
+    }
+
+    // Publish
+    const pubBtn = document.querySelector('[data-action="publish"]');
+    if (pubBtn) {
+        pubBtn.addEventListener('click', async function() {
+            if (!confirm('发布后配置将影响线上所有用户。确定要发布吗？')) return;
+            try {
+                const resp = await fetch('/admin/agents/1/publish', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({}),
+                });
+                const result = await resp.json();
+                if (result.status === 'success') {
+                    data.agent.status = 'published';
+                    data.showToast('发布成功！', 'success');
+                } else {
+                    data.showToast('发布失败：' + (result.message || '未知错误'), 'error');
+                }
+            } catch(e) {
+                data.showToast('发布失败：' + e.message, 'error');
+            }
+        });
+    }
+}
+
+// Initial wire on page load
+document.addEventListener('DOMContentLoaded', wireBottomBar);
+</script>
+
+</body>
+</html>

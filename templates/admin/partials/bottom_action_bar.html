@@ -1,0 +1,19 @@
+<div class="bottom-action-bar">
+    <!-- Left: save status -->
+    <div class="action-bar-left">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        <span>草稿已保存</span>
+    </div>
+
+    <!-- Right: action buttons (wired via data-action in layout.html JS) -->
+    <div class="action-bar-right">
+        <button class="btn btn-secondary" data-action="reset-form">重置表单</button>
+        <button class="btn btn-secondary" data-action="save-draft">保存草稿</button>
+        <button class="btn btn-secondary" data-action="test-agent">测试 Agent</button>
+        <button class="btn btn-primary" data-action="publish">发布上线</button>
+    </div>
+</div>

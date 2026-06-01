@@ -1,0 +1,9 @@
+{# Workspace entry point — extends layout and renders default section #}
+{% extends "admin/layout.html" %}
+
+{% block main_panel %}
+<div id="main-panel" hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
+    {# Default to basic section #}
+    {% include 'admin/sections/basic.html' %}
+</div>
+{% endblock %}

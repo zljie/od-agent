@@ -536,14 +536,108 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    # Admin UI endpoint
+    # ── New Admin Workspace (Pico CSS + HTMX) ──────────────────────────────────
     @app.get("/admin", response_class=HTMLResponse)
     async def admin_ui(request: Request):
-        """Serve the admin configuration page."""
-        tmpl = _jinja_env.get_template("admin/base.html")
+        """Serve the new admin configuration page with three-column layout."""
+        tmpl = _jinja_env.get_template("admin/layout.html")
         return HTMLResponse(tmpl.render(request=request))
 
-    # HTMX partial routes for intent management
+    @app.get("/admin/agents/{agent_id}/sections/{section}", response_class=HTMLResponse)
+    async def admin_section(request: Request, agent_id: str, section: str):
+        """HTMX partial: return the section template for the given section name."""
+        section_map = {
+            "basic": "admin/sections/basic.html",
+            "model": "admin/sections/model.html",
+            "prompt": "admin/sections/prompt.html",
+            "intent_routes": "admin/sections/intent_routes.html",
+            "skills": "admin/sections/skills.html",
+            "semantic": "admin/sections/semantic.html",
+            "test_publish": "admin/sections/test_publish.html",
+        }
+        tmpl_path = section_map.get(section, "admin/sections/basic.html")
+        tmpl = _jinja_env.get_template(tmpl_path)
+        return HTMLResponse(tmpl.render(request=request))
+
+    @app.post("/admin/agents/{agent_id}/basic")
+    async def save_basic(request: Request, agent_id: str):
+        """Save agent basic information."""
+        body = await request.json()
+        current_config = load_agent_config()
+        current_config.setdefault("basic", {}).update(body)
+        for key, value in body.items():
+            if key in ("agent_name", "display_name", "description", "scenario",
+                        "owner", "default_language", "timezone",
+                        "response_style", "memory_policy"):
+                current_config[key] = value
+        save_agent_config(current_config)
+        return {"status": "success", "message": "基础信息已保存"}
+
+    @app.post("/admin/agents/{agent_id}/model")
+    async def save_model(request: Request, agent_id: str):
+        """Save model configuration."""
+        body = await request.json()
+        current_config = load_agent_config()
+        current_config.setdefault("model_config", {}).update(body)
+        save_agent_config(current_config)
+        return {"status": "success", "message": "模型配置已保存"}
+
+    @app.post("/admin/agents/{agent_id}/prompt")
+    async def save_prompt(request: Request, agent_id: str):
+        """Save prompt configuration."""
+        body = await request.json()
+        current_config = load_agent_config()
+        current_config.setdefault("prompt_config", {}).update(body)
+        if "system_prompt" in body:
+            current_config["system_prompt"] = body["system_prompt"]
+        save_agent_config(current_config)
+        return {"status": "success", "message": "Prompt 配置已保存"}
+
+    @app.post("/admin/agents/{agent_id}/save-draft")
+    async def save_draft(request: Request, agent_id: str):
+        """Save full draft configuration."""
+        body = await request.json()
+        current_config = load_agent_config()
+        current_config.update(body)
+        save_agent_config(current_config)
+        return {"status": "success", "message": "草稿已保存"}
+
+    @app.post("/admin/agents/{agent_id}/publish")
+    async def publish_agent(request: Request, agent_id: str):
+        """Publish the current draft configuration."""
+        body = await request.json() or {}
+        change_summary = body.get("change_summary", "")
+        current_config = load_agent_config()
+        current_config["status"] = "published"
+        current_config["last_published"] = datetime.now().isoformat()
+        current_config["change_summary"] = change_summary
+        save_agent_config(current_config)
+        # TODO: save config version snapshot to agent_config_versions table
+        return {
+            "status": "success",
+            "message": "发布成功",
+            "version": "v1.1",
+        }
+
+    @app.post("/admin/agents/{agent_id}/test")
+    async def test_agent(request: Request, agent_id: str):
+        """Test the agent with a given message, return response text."""
+        body = await request.json() or {}
+        message = body.get("message", "")
+        if not message:
+            return {"status": "error", "message": "message is required"}
+        agent = get_agent()
+        response = await agent.chat(message)
+        return {"status": "success", "response": response}
+
+    @app.get("/admin/agents/{agent_id}/summary", response_class=HTMLResponse)
+    async def agent_summary(request: Request, agent_id: str):
+        """Return updated right-summary partial."""
+        config = load_agent_config()
+        tmpl = _jinja_env.get_template("admin/partials/right_summary.html")
+        return HTMLResponse(tmpl.render(request=request, agent_config=config))
+
+    # ── Legacy Admin routes (kept for backward compat) ──────────────────────
     @app.get("/admin/intents/list", response_class=HTMLResponse)
     async def intents_list_partial(request: Request):
         """Return intent list as HTML fragment for HTMX refresh."""

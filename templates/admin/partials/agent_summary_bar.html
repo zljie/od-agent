@@ -1,0 +1,55 @@
+<div class="agent-summary-bar">
+    <!-- Agent Name + Status -->
+    <div class="summary-item">
+        <span class="summary-label">Agent</span>
+        <span class="summary-value" x-text="agent.name">OD_Assistant</span>
+    </div>
+
+    <div class="summary-divider"></div>
+
+    <!-- Status Badge -->
+    <div class="summary-item">
+        <span class="summary-label">状态</span>
+        <span class="summary-value">
+            <span class="badge" :class="agent.status === 'published' ? 'badge-published' : 'badge-draft'"
+                  x-text="agent.status === 'published' ? '已发布' : '草稿'">
+                草稿
+            </span>
+        </span>
+    </div>
+
+    <div class="summary-divider"></div>
+
+    <!-- Provider -->
+    <div class="summary-item">
+        <span class="summary-label">Provider</span>
+        <span class="summary-value" x-text="agent.provider">DeepSeek</span>
+    </div>
+
+    <div class="summary-divider"></div>
+
+    <!-- Model -->
+    <div class="summary-item">
+        <span class="summary-label">Model</span>
+        <span class="summary-value" x-text="agent.model">DeepSeek V3</span>
+    </div>
+
+    <div class="summary-divider"></div>
+
+    <!-- API Status -->
+    <div class="summary-item">
+        <span class="summary-label">API 状态</span>
+        <span class="summary-value">
+            <span class="api-dot" :class="agent.apiReady ? 'connected' : 'error'"></span>
+            <span x-text="agent.apiReady ? '连接正常' : '连接异常'">连接正常</span>
+        </span>
+    </div>
+
+    <div class="summary-divider"></div>
+
+    <!-- Last Saved -->
+    <div class="summary-item">
+        <span class="summary-label">最后保存</span>
+        <span class="summary-value text-muted" x-text="agent.lastSaved || '未保存'">—</span>
+    </div>
+</div>

@@ -1,0 +1,54 @@
+<div class="right-panel">
+    <!-- System Summary Card -->
+    <div class="right-card">
+        <div class="right-card-title">系统摘要</div>
+        <table style="width: 100%;">
+            <tbody>
+                <tr>
+                    <td>Provider</td>
+                    <td x-text="agent.provider || '—'">DeepSeek</td>
+                </tr>
+                <tr>
+                    <td>Model</td>
+                    <td x-text="agent.model || '—'">DeepSeek V3</td>
+                </tr>
+                <tr>
+                    <td>Temperature</td>
+                    <td x-text="agent.temperature || '0.7'">0.7</td>
+                </tr>
+                <tr>
+                    <td>Max Tokens</td>
+                    <td x-text="agent.maxTokens || '2000'">2000</td>
+                </tr>
+                <tr>
+                    <td>API Base URL</td>
+                    <td style="font-size: 0.72rem; word-break: break-all;" x-text="agent.baseUrl || '—'">https://api.deepseek.com/v1</td>
+                </tr>
+                <tr>
+                    <td>API Key</td>
+                    <td>
+                        <code style="font-size: 0.72rem; background: var(--surface-tertiary); padding: 1px 5px; border-radius: 4px;">DEEPSEEK_API_KEY</code>
+                    </td>
+                </tr>
+                <tr>
+                    <td>状态</td>
+                    <td>
+                        <span class="badge" :class="agent.status === 'published' ? 'badge-published' : 'badge-draft'"
+                              x-text="agent.status === 'published' ? '已发布' : '草稿'">草稿</span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Tips Card -->
+    <div class="right-card">
+        <div class="right-card-title">配置提示</div>
+        <ul class="tips-list">
+            <li>基础信息用于定义 Agent 的身份和行为基线</li>
+            <li>配置完成后请进行测试，确保 Agent 表现符合预期</li>
+            <li>发布后，配置会影响线上所有用户</li>
+            <li>API Key 从环境变量读取，页面不存储敏感信息</li>
+        </ul>
+    </div>
+</div>
