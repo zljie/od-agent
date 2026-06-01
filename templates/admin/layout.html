@@ -195,9 +195,34 @@
 <div id="toast-container" class="toast-container"></div>
 
 <script>
+// Execute scripts in dynamically loaded HTML (HTMX swaps don't auto-execute scripts)
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    var target = evt.detail.target;
+    if (!target) return;
+    var scripts = target.querySelectorAll('script');
+    scripts.forEach(function(oldScript) {
+        var src = oldScript.src;
+        var text = oldScript.textContent;
+        var newScript = document.createElement('script');
+        if (src) {
+            newScript.src = src;
+        } else {
+            newScript.textContent = text;
+        }
+        newScript.async = false;
+        document.head.appendChild(newScript);
+        if (!src) {
+            document.head.removeChild(newScript);
+        }
+    });
+});
+</script>
+
+<script>
 function adminWorkspace() {
     return {
         activeSection: 'basic',
+        isDevMode: true, // 研发模式：保存即热更新，发布按钮隐藏
 
         // Agent config state (loaded from /config)
         agent: {
@@ -266,6 +291,26 @@ function adminWorkspace() {
             this.showToast('草稿已保存', 'success');
         },
 
+        async saveAndApply() {
+            // 研发模式：保存配置并立即热更新 Agent
+            const panel = document.getElementById('main-panel');
+            panel.dispatchEvent(new CustomEvent('section-save'));
+            
+            // 手动触发热更新
+            try {
+                const resp = await fetch('/admin/agents/1/hot-reload', { method: 'POST' });
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    this.showToast('配置已保存并应用，Agent 已热更新', 'success');
+                    this.agent.lastSaved = '刚刚';
+                } else {
+                    this.showToast('热更新失败：' + (data.message || '未知错误'), 'error');
+                }
+            } catch (e) {
+                this.showToast('热更新失败：' + e.message, 'error');
+            }
+        },
+
         async testAgent() {
             // Navigate to test section
             this.activeSection = 'test_publish';
@@ -292,84 +337,6 @@ function adminWorkspace() {
         },
     };
 }
-
-// Custom event bus: bottom bar → active section
-// Dispatch a 'section-save' event on the main-panel element; the active
-// section's Alpine component listens and triggers its own save logic.
-document.body.addEventListener('htmx:afterSwap', function(evt) {
-    // Re-wire bottom-bar buttons to the newly swapped section
-    wireBottomBar();
-});
-
-function wireBottomBar() {
-    const ws = document.querySelector('[x-data]');
-    if (!ws || !ws.__x) return;
-    const data = ws.__x.$data;
-
-    // Save Draft → dispatch save event to active section
-    const saveBtn = document.querySelector('[data-action="save-draft"]');
-    if (saveBtn) {
-        saveBtn.addEventListener('click', function() {
-            const panel = document.getElementById('main-panel');
-            panel.dispatchEvent(new CustomEvent('section-save'));
-            data.showToast('草稿已保存', 'success');
-            // Update last saved time
-            data.agent.lastSaved = '刚刚';
-        });
-    }
-
-    // Reset → reload current section
-    const resetBtn = document.querySelector('[data-action="reset-form"]');
-    if (resetBtn) {
-        resetBtn.addEventListener('click', function() {
-            if (confirm('确定要重置当前页面的修改吗？')) {
-                htmx.ajax('GET', `/admin/agents/1/sections/${data.activeSection}`, {
-                    target: '#main-panel',
-                    swap: 'innerHTML',
-                });
-            }
-        });
-    }
-
-    // Test → navigate to test section
-    const testBtn = document.querySelector('[data-action="test-agent"]');
-    if (testBtn) {
-        testBtn.addEventListener('click', function() {
-            data.activeSection = 'test_publish';
-            htmx.ajax('GET', '/admin/agents/1/sections/test_publish', {
-                target: '#main-panel',
-                swap: 'innerHTML',
-            });
-        });
-    }
-
-    // Publish
-    const pubBtn = document.querySelector('[data-action="publish"]');
-    if (pubBtn) {
-        pubBtn.addEventListener('click', async function() {
-            if (!confirm('发布后配置将影响线上所有用户。确定要发布吗？')) return;
-            try {
-                const resp = await fetch('/admin/agents/1/publish', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({}),
-                });
-                const result = await resp.json();
-                if (result.status === 'success') {
-                    data.agent.status = 'published';
-                    data.showToast('发布成功！', 'success');
-                } else {
-                    data.showToast('发布失败：' + (result.message || '未知错误'), 'error');
-                }
-            } catch(e) {
-                data.showToast('发布失败：' + e.message, 'error');
-            }
-        });
-    }
-}
-
-// Initial wire on page load
-document.addEventListener('DOMContentLoaded', wireBottomBar);
 </script>
 
 </body>
