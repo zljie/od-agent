@@ -173,7 +173,7 @@ class SemanticIndexer:
             synonyms=ai_ctx.synonyms if ai_ctx else [],
             examples=[ex for ex in (ai_ctx.examples if ai_ctx else []) if isinstance(ex, str)],
             description=ds.description or "",
-            graphql_fragment=f"query {{ {ds.name.lower()}s {{ ...{ds.name}Fields }} }}",
+            graphql_fragment=f"query {{ {ds.name.lower()}{'s' if not ds.name.lower().endswith('s') else ''} {{ ...{ds.name}Fields }} }}",
         )
         self._operations[op.operation_id] = op
 
@@ -187,10 +187,10 @@ class SemanticIndexer:
                 synonyms=_extract_synonyms(ai_ctx, field_def.name) if ai_ctx else [],
                 examples=[],
                 description=field_def.description or "",
-                graphql_fragment=f"query {{ {ds.name.lower()}s {{ {field_def.name} }} }}",
+                graphql_fragment=f"query {{ {ds.name.lower()}{'s' if not ds.name.lower().endswith('s') else ''} {{ {field_def.name} }} }}",
             )
-            self._embeddings[field_op.operation_id] = self._embed_fn(field_op.search_corpus)
             self._operations[field_op.operation_id] = field_op
+            self._embeddings[field_op.operation_id] = self._embed_fn(field_op.search_corpus)
 
     def _index_action(self, action: "Action") -> None:
         ai_ctx = action.ai_context
@@ -205,8 +205,8 @@ class SemanticIndexer:
             description=action.description or "",
             graphql_fragment=f"mutation {{ {action.name}(...) {{ ...{action.name}PayloadFields }} }}",
         )
-        self._embeddings[op.operation_id] = self._embed_fn(op.search_corpus)
         self._operations[op.operation_id] = op
+        self._embeddings[op.operation_id] = self._embed_fn(op.search_corpus)
 
     def search(self, query: str, top_k: Optional[int] = None) -> List[SemanticSearchResult]:
         """Search for the nearest GraphQL operation to a natural language query.

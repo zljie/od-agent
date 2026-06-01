@@ -15,6 +15,7 @@ from .graphql_generator import GraphQLGenerator
 from .mcp_server import MCPServer, MCPMode, build_mcp_tools_from_osi
 from .osi_model import (
     AIContext,
+    ActionParameter,
     DataSet,
     FieldDefinition,
     OSIModel,
@@ -25,10 +26,49 @@ from .semantic_indexer import SemanticIndexer
 
 
 def load_osi_model(path: str | Path) -> OSIModel:
-    """Load an OSI semantic model from a YAML file."""
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    """Load an OSI semantic model from a YAML file.
 
+    Supports two formats:
+    1. Direct format: {datasets: [...], relationships: [...], metrics: [...], behavior: {...}}
+    2. Nested semantic_model format: {semantic_model: [{name: ..., datasets: [...], ...}]}
+       (the DTP procurement ontology uses this format)
+
+    Args:
+        path: Path to the YAML file.
+
+    Returns:
+        OSIModel instance with all datasets, relationships, metrics, actions, and rules loaded.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+
+    # Normalise the YAML structure: handle the nested `semantic_model[]` wrapper.
+    if "semantic_model" in raw:
+        model_list = raw["semantic_model"]
+        if isinstance(model_list, list) and len(model_list) > 0:
+            data = model_list[0]
+        elif isinstance(model_list, dict):
+            data = model_list
+        else:
+            data = {}
+    else:
+        data = raw
+
+    return _build_osi_model(data)
+
+
+def _build_osi_model(data: Dict[str, Any]) -> OSIModel:
+    """Build an OSIModel from a parsed YAML dict (no file I/O).
+
+    Handles the DTP ontology field format where:
+    - field entries use `type` instead of `gql_type`
+    - extra fields like `expression`, `primary_key`, `source` are preserved as metadata
+    - ai_context can be at the top level (for the model itself)
+    - `operation_catalog` entries are loaded as actions when `behavior.actions` is absent
+    """
+    from .osi_model import Action, Metric, Rule
+
+    # ── Load datasets ───────────────────────────────────────────────────────
     datasets = []
     for ds_raw in data.get("datasets", []):
         ai_ctx = None
@@ -37,28 +77,129 @@ def load_osi_model(path: str | Path) -> OSIModel:
 
         fields = []
         for f_raw in ds_raw.pop("fields", []):
+            # Normalise `type` → `gql_type` (DTP format uses `type`)
+            gql_type = f_raw.pop("type", None)
+            if gql_type and "gql_type" not in f_raw:
+                f_raw["gql_type"] = gql_type
+
+            # Preserve SQL expression metadata for schema documentation
+            expr = f_raw.pop("expression", None)
+            if expr:
+                f_raw["ai_hint"] = f"SQL: {expr}"
+
+            # Strip non-OSI fields that DataSet/FieldDefinition don't know about
+            for _field in list(f_raw.keys()):
+                if _field not in (
+                    "name", "gql_type", "description", "required", "is_list",
+                    "enum_values", "enum_name", "relation_target", "ai_hint",
+                ):
+                    f_raw.pop(_field, None)
+
             fields.append(FieldDefinition(**f_raw))
+
+        # Strip non-OSI top-level dataset fields
+        for _f in list(ds_raw.keys()):
+            if _f not in ("name", "description", "fields", "ai_context"):
+                ds_raw.pop(_f, None)
 
         datasets.append(DataSet(ai_context=ai_ctx, fields=fields, **ds_raw))
 
+    # ── Load relationships ──────────────────────────────────────────────────
     relationships = []
     for r in data.get("relationships", []):
+        # Normalise `from`/`to` → `from_dataset`/`to_dataset` (DTP format)
+        # Must happen before the strip loop below.
+        if "from" in r and "from_dataset" not in r:
+            r["from_dataset"] = r.pop("from")
+        if "to" in r and "to_dataset" not in r:
+            r["to_dataset"] = r.pop("to")
+        # Strip non-OSI fields
+        for _f in list(r.keys()):
+            if _f not in (
+                "from_dataset", "to_dataset", "relation_type", "description",
+                "via_field", "ai_hint",
+            ):
+                r.pop(_f, None)
         relationships.append(Relationship(**r))
 
+    # ── Load metrics ───────────────────────────────────────────────────────
     metrics = []
     for m in data.get("metrics", []):
         ai_ctx = None
         if "ai_context" in m:
             ai_ctx = AIContext(**m.pop("ai_context"))
-        metrics.append(type(m).__class__.__name__)  # placeholder; use dict approach below
+        for _f in list(m.keys()):
+            if _f not in (
+                "name", "description", "unit", "dataset", "aggregation",
+                "filter_fields", "ai_context",
+            ):
+                m.pop(_f, None)
+        metrics.append(Metric(ai_context=ai_ctx, **m))
 
-    behavior = data.get("behavior", {})
-    actions = [ActionSpec(**a) for a in behavior.get("actions", [])]
-    rules = [RuleSpec(**r) for r in behavior.get("rules", [])]
+    # ── Load actions (from `behavior.actions` or `operation_catalog`) ───────
+    actions = []
+    behavior_section = data.get("behavior", {})
+    action_sources = behavior_section.get("actions", []) or data.get("operation_catalog", [])
+
+    for a in action_sources:
+        ai_ctx = None
+        if "ai_context" in a:
+            ai_ctx = AIContext(**a.pop("ai_context"))
+
+        # operation_catalog entries use `name` or `id`; prefer `name`
+        action_name = a.get("name") or a.get("id", "unknown")
+        # operation_catalog format: {kind, operation, entity_name, io_schema, ...}
+        # Map to OSI Action fields
+        params = []
+        io_schema = a.get("io_schema", {})
+        input_schema = io_schema.get("input_schema", {})
+        if isinstance(input_schema, dict):
+            required = input_schema.get("required", [])
+            for pname, pdef in input_schema.get("properties", {}).items():
+                ptype = _map_type(pdef.get("type", "string"))
+                params.append(ActionParameter(
+                    name=pname,
+                    gql_type=ptype,
+                    description=pdef.get("description", ""),
+                    required=pname in required,
+                ))
+
+        for _extra in ["name", "id", "kind", "operation", "entity_name",
+                       "io_schema", "labels", "applies_to"]:
+            a.pop(_extra, None)
+        # Now a only has OSI Action fields; use **a safely
+        action_ds = a.pop("dataset", None) or ""
+        actions.append(Action(
+            ai_context=ai_ctx,
+            name=action_name,
+            dataset=action_ds,
+            description=a.pop("description", ""),
+            parameters=params,
+            **a,
+        ))
+
+    # ── Load rules (from `behavior.rules`) ─────────────────────────────────
+    rules = []
+    for r in behavior_section.get("rules", []):
+        ai_ctx = None
+        if "ai_context" in r:
+            ai_ctx = AIContext(**r.pop("ai_context"))
+        for _f in list(r.keys()):
+            if _f not in (
+                "name", "description", "severity", "dataset", "condition",
+                "enforcement", "ai_context",
+            ):
+                r.pop(_f, None)
+        rules.append(Rule(ai_context=ai_ctx, **r))
+
+    # ── Model-level ai_context ─────────────────────────────────────────────
+    model_ai_ctx = None
+    if "ai_context" in data:
+        model_ai_ctx = AIContext(**data.pop("ai_context"))
 
     return OSIModel(
         version=data.get("version", "1.0"),
-        domain=data.get("domain", ""),
+        domain=data.get("name", "") or data.get("domain", ""),
         description=data.get("description", ""),
         datasets=datasets,
         relationships=relationships,
@@ -66,53 +207,32 @@ def load_osi_model(path: str | Path) -> OSIModel:
         actions=actions,
         rules=rules,
     )
+
+
+def _map_type(t: str) -> str:
+    """Map YAML type strings to GraphQL type names."""
+    mapping = {
+        "string": "String",
+        "integer": "Int",
+        "number": "Float",
+        "boolean": "Boolean",
+        "date": "String",
+        "datetime": "DateTime",
+        "object": "JSON",
+        "array": "String",
+    }
+    return mapping.get(t.lower(), "String")
 
 
 def load_osi_model_from_dict(data: Dict[str, Any]) -> OSIModel:
     """Build an OSIModel from a parsed YAML dict (no file I/O)."""
-    datasets = []
-    for ds_raw in data.get("datasets", []):
-        ai_ctx = None
-        if "ai_context" in ds_raw:
-            ai_ctx = AIContext(**ds_raw.pop("ai_context"))
-        fields = [FieldDefinition(**f) for f in ds_raw.pop("fields", [])]
-        datasets.append(DataSet(ai_context=ai_ctx, fields=fields, **ds_raw))
-
-    relationships = [Relationship(**r) for r in data.get("relationships", [])]
-
-    from .osi_model import Action, Metric, Rule
-
-    metrics = []
-    for m in data.get("metrics", []):
-        ai_ctx = None
-        if "ai_context" in m:
-            ai_ctx = AIContext(**m.pop("ai_context"))
-        metrics.append(Metric(ai_context=ai_ctx, **m))
-
-    actions = []
-    for a in data.get("behavior", {}).get("actions", []):
-        ai_ctx = None
-        if "ai_context" in a:
-            ai_ctx = AIContext(**a.pop("ai_context"))
-        actions.append(Action(ai_context=ai_ctx, **a))
-
-    rules = []
-    for r in data.get("behavior", {}).get("rules", []):
-        ai_ctx = None
-        if "ai_context" in r:
-            ai_ctx = AIContext(**r.pop("ai_context"))
-        rules.append(Rule(ai_context=ai_ctx, **r))
-
-    return OSIModel(
-        version=data.get("version", "1.0"),
-        domain=data.get("domain", ""),
-        description=data.get("description", ""),
-        datasets=datasets,
-        relationships=relationships,
-        metrics=metrics,
-        actions=actions,
-        rules=rules,
-    )
+    if "semantic_model" in data:
+        model_list = data["semantic_model"]
+        if isinstance(model_list, list) and len(model_list) > 0:
+            data = model_list[0]
+        elif isinstance(model_list, dict):
+            data = model_list
+    return _build_osi_model(data)
 
 
 class ActionSpec:
@@ -187,9 +307,7 @@ class SemanticBackend:
             return self
 
         if self._yaml_path:
-            with open(self._yaml_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            self._model = load_osi_model_from_dict(data)
+            self._model = load_osi_model(self._yaml_path)
 
         if self._model is None:
             raise ValueError("No OSI model provided. Set yaml_path or pass model=...")

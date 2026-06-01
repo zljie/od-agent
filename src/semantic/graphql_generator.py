@@ -219,7 +219,8 @@ class GraphQLGenerator:
         for ds in self._model.datasets:
             pk = ds.primary_key_field()
             pk_arg = f"(id: ID!)" if pk else "(id: ID!)"
-            lines.append(f"  {ds.name.lower()}s: [{ds.name}!]!")
+            plural = "" if ds.name.lower().endswith("s") else "s"
+            lines.append(f"  {ds.name.lower()}{plural}: [{ds.name}!]!")
             lines.append(f"  {ds.name.lower()}{pk_arg}: {ds.name}")
 
         for m in self._model.metrics:

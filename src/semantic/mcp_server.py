@@ -158,8 +158,10 @@ def build_mcp_tools_from_osi(model: "OSIModel") -> List[MCPTool]:
     ds_map = model.dataset_map()
 
     for ds in model.datasets:
+        # Avoid double-s for names already ending in 's' (e.g. materials → query_materials)
+        plural = "" if ds.name.lower().endswith("s") else "s"
         query_tool = MCPTool(
-            name=f"query_{ds.name.lower()}s",
+            name=f"query_{ds.name.lower()}{plural}",
             description=ds.description or f"查询 {ds.name} 数据",
             input_schema=_build_query_input_schema(ds),
             graphql_operation=_build_query_operation(ds),
@@ -216,7 +218,8 @@ def _build_action_input_schema(action: "Action") -> Dict[str, Any]:
 
 def _build_query_operation(ds: "DataSet") -> str:
     fields = " ".join(f.name for f in ds.fields if not f.relation_target)
-    return f"query {{ {ds.name.lower()}s {{ {fields} }} }}"
+    plural = "" if ds.name.lower().endswith("s") else "s"
+    return f"query {{ {ds.name.lower()}{plural} {{ {fields} }} }}"
 
 
 def _build_mutation_operation(action: "Action") -> str:

@@ -321,6 +321,13 @@ class CustomerServiceAgent:
         temporal = self._skill_manager.build_temporal_context(user_input)
         temporal_context_str = temporal.get("context_text", "") if temporal.get("has_multiple_anchors") else ""
 
+        # Build ontology context: semantic search over the knowledge graph
+        ontology_context: Dict[str, Any] = {}
+        try:
+            ontology_context = self._skill_manager.get_ontology_context_for_message(user_input)
+        except Exception:
+            ontology_context = {}
+
         # Build enhanced user input with skill context
         content = user_input
         if skill_context:
@@ -330,7 +337,7 @@ class CustomerServiceAgent:
                 f"请基于以上信息回答用户问题。"
             )
         else:
-            # Always expose skill catalog + temporal context so the LLM knows what's available
+            # Always expose skill catalog + temporal + ontology context so the LLM knows what's available
             parts = [
                 f"{user_input}\n\n",
                 f"[系统技能辅助信息]\n",
@@ -338,6 +345,18 @@ class CustomerServiceAgent:
             ]
             if temporal_context_str:
                 parts.append(f"{temporal_context_str}\n")
+            # Inject ontology context when semantic search found relevant datasets
+            if ontology_context.get("relevant_datasets"):
+                parts.append("[业务本体知识图谱上下文]\n")
+                parts.append("基于用户问题，语义搜索识别到以下相关业务数据集：\n")
+                for ds in ontology_context["relevant_datasets"]:
+                    parts.append(f"  - {ds['name']}: {ds['description']}")
+                    if ds.get("synonyms"):
+                        parts.append(f"    同义词: {', '.join(ds['synonyms'])}")
+                    if ds.get("examples"):
+                        for ex in ds["examples"][:2]:
+                            parts.append(f"    示例: {ex}")
+                parts.append("\n")
             parts.append(
                 "如果用户问题可以用以上技能解决，请直接使用技能结果回答；"
                 "如果技能列表中没有相关技能，再使用你的知识回答。"
@@ -430,6 +449,13 @@ class CustomerServiceAgent:
         temporal = self._skill_manager.build_temporal_context(user_input)
         temporal_context_str = temporal.get("context_text", "") if temporal.get("has_multiple_anchors") else ""
 
+        # Build ontology context: semantic search over the knowledge graph
+        ontology_context: Dict[str, Any] = {}
+        try:
+            ontology_context = self._skill_manager.get_ontology_context_for_message(user_input)
+        except Exception:
+            ontology_context = {}
+
         user_content = user_input
         if skill_context:
             user_content = (
@@ -445,6 +471,17 @@ class CustomerServiceAgent:
             ]
             if temporal_context_str:
                 parts.append(f"{temporal_context_str}\n")
+            if ontology_context.get("relevant_datasets"):
+                parts.append("[业务本体知识图谱上下文]\n")
+                parts.append("基于用户问题，语义搜索识别到以下相关业务数据集：\n")
+                for ds in ontology_context["relevant_datasets"]:
+                    parts.append(f"  - {ds['name']}: {ds['description']}")
+                    if ds.get("synonyms"):
+                        parts.append(f"    同义词: {', '.join(ds['synonyms'])}")
+                    if ds.get("examples"):
+                        for ex in ds["examples"][:2]:
+                            parts.append(f"    示例: {ex}")
+                parts.append("\n")
             parts.append(
                 "如果用户问题可以用以上技能解决，请直接使用技能结果回答；"
                 "如果技能列表中没有相关技能，再使用你的知识回答。"

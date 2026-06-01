@@ -19,7 +19,7 @@ from .skill_registry import SkillRegistry
 from .task_executor import TaskExecutor
 from .math_teacher import MathTeacherSkill
 from .time_converter import TimeConverterSkill
-from .semantic_skill import SemanticSkill
+from .semantic_skill import SemanticSkill, _load_semantic_config
 
 if TYPE_CHECKING:
     from ..agent import CustomerServiceAgent
@@ -45,10 +45,19 @@ class SkillManager:
         self._register_builtin_skills()
 
     def _register_builtin_skills(self):
-        """Register built-in skills."""
+        """Register built-in skills.
+
+        SemanticSkill reads its yaml_path / use_demo setting from config/semantic_config.json.
+        """
         self.register(MathTeacherSkill())
         self.register(TimeConverterSkill())
-        self.register(SemanticSkill(use_demo_model=True))
+        # Load semantic config so we know whether to use demo model or the real YAML
+        sem_cfg = _load_semantic_config()
+        self.register(SemanticSkill(
+            yaml_path=sem_cfg.get("yaml_path") or None,
+            graphql_endpoint=sem_cfg.get("graphql_endpoint") or None,
+            use_demo_model=sem_cfg.get("use_demo", False),
+        ))
 
     def _resolve_today_date(self):
         """Resolve the current local date via TimeConverterSkill.
@@ -524,6 +533,35 @@ class SkillManager:
             "has_multiple_anchors": True,
             "journey_result": None,
         }
+    def get_ontology_summary(self) -> str:
+        """Get a formatted summary of the loaded knowledge graph ontology.
+
+        Returns an empty string if the SemanticSkill is not available or not loaded.
+        """
+        sem_skill = self._registry.get("Semantic Query")
+        if sem_skill and hasattr(sem_skill, "get_ontology_summary"):
+            try:
+                return sem_skill.get_ontology_summary()
+            except Exception:
+                return ""
+        return ""
+
+    def get_ontology_context_for_message(self, message: str) -> Dict[str, Any]:
+        """Get ontology context relevant to a specific user message.
+
+        Performs a semantic search and returns relevant dataset descriptions
+        to help the LLM understand what the user is asking about.
+
+        Returns an empty dict if the SemanticSkill is not available.
+        """
+        sem_skill = self._registry.get("Semantic Query")
+        if sem_skill and hasattr(sem_skill, "get_ontology_context_for_intent"):
+            try:
+                return sem_skill.get_ontology_context_for_intent(message)
+            except Exception:
+                return {}
+        return {}
+
     # ─── Internal helpers ──────────────────────────────────────────────────────
 
     def _skill_matches(self, skill: BaseSkill, message: str) -> bool:
