@@ -1,0 +1,29 @@
+{
+    "enabled": true,
+    "description": "L1-L3 input preprocessing pipeline configuration. All stages are optional and can be disabled independently.",
+    "stages": {
+        "L1_cleaner": {
+            "enabled": true,
+            "description": "Basic text normalization: whitespace, full/half-width, punctuation",
+            "normalize_whitespace": true,
+            "normalize_punctuation": true,
+            "compress_repeated_punct": true,
+            "convert_fullwidth": true
+        },
+        "L2_term_protector": {
+            "enabled": true,
+            "description": "Business term whitelist protection — prevents terms from being modified by typo corrector",
+            "config_path": "config/term_protection.json",
+            "placeholder_prefix": "__TP_",
+            "placeholder_suffix": "__",
+            "case_sensitive": false
+        },
+        "L3_typo_corrector": {
+            "enabled": true,
+            "description": "Chinese text error correction using pycorrector (Qwen3-4B-CTC backend)",
+            "confidence_threshold": 0.95,
+            "candidate_threshold": 0.70,
+            "model": "pycorrector"
+        }
+    }
+}

@@ -7,13 +7,120 @@
             <polyline points="7 3 7 8 15 8"/>
         </svg>
         <span>草稿已保存</span>
+        <span x-show="isDevMode" class="badge badge-draft" style="margin-left: 0.5rem; font-size: 0.65rem;">研发模式：保存即生效</span>
     </div>
 
-    <!-- Right: action buttons (wired via data-action in layout.html JS) -->
+    <!-- Right: action buttons -->
     <div class="action-bar-right">
-        <button class="btn btn-secondary" data-action="reset-form">重置表单</button>
-        <button class="btn btn-secondary" data-action="save-draft">保存草稿</button>
-        <button class="btn btn-secondary" data-action="test-agent">测试 Agent</button>
-        <button class="btn btn-primary" data-action="publish">发布上线</button>
+        <button type="button" class="btn btn-secondary" onclick="handleResetForm()">重置表单</button>
+        <button type="button" class="btn btn-primary" id="saveAndApplyBtn">保存并应用</button>
+        <button type="button" class="btn btn-secondary" onclick="handleTestAgent()">测试 Agent</button>
+        <button type="button" class="btn btn-outline" id="publishBtn" x-show="!isDevMode">发布上线</button>
     </div>
 </div>
+
+<script>
+// Global admin store - accessible from any external script
+function getAdminData() {
+    const el = document.querySelector('[x-data]');
+    if (!el) return null;
+    // Alpine 3.x: component data is in _x_dataStack array
+    return el._x_dataStack ? el._x_dataStack[0] : null;
+}
+
+function handleResetForm() {
+    const data = getAdminData();
+    if (data) {
+        if (confirm('确定要重置当前页面的修改吗？')) {
+            htmx.ajax('GET', `/admin/agents/1/sections/${data.activeSection}`, {
+                target: '#main-panel',
+                swap: 'innerHTML',
+            });
+        }
+    }
+}
+
+function handleTestAgent() {
+    const data = getAdminData();
+    if (data) {
+        data.activeSection = 'test_publish';
+        htmx.ajax('GET', '/admin/agents/1/sections/test_publish', {
+            target: '#main-panel',
+            swap: 'innerHTML',
+        });
+    }
+}
+
+async function handleSaveAndApply() {
+    console.log('[保存并应用] 按钮点击');
+    
+    const data = getAdminData();
+    if (!data) {
+        console.error('[保存并应用] 未找到 Alpine 实例');
+        return;
+    }
+    
+    // 1. Dispatch save event to current section
+    const panel = document.getElementById('main-panel');
+    panel.dispatchEvent(new CustomEvent('section-save'));
+    
+    // Small delay to let section handle save first
+    await new Promise(r => setTimeout(r, 200));
+    
+    // 2. Hot-reload agent
+    try {
+        const resp = await fetch('/admin/agents/1/hot-reload', { method: 'POST' });
+        const result = await resp.json();
+        
+        const configResp = await fetch('/config');
+        const config = await configResp.json();
+        console.log('[保存并应用] System Prompt:', config.system_prompt);
+        
+        if (result.status === 'success') {
+            data.showToast('配置已保存并应用，Agent 已热更新', 'success');
+            data.agent.lastSaved = '刚刚';
+        } else {
+            data.showToast('热更新失败：' + (result.message || '未知错误'), 'error');
+        }
+    } catch(e) {
+        data.showToast('热更新失败：' + e.message, 'error');
+    }
+}
+
+async function handlePublish() {
+    const data = getAdminData();
+    if (!data) return;
+    
+    if (!confirm('发布后配置将影响线上所有用户。确定要发布吗？')) return;
+    try {
+        const resp = await fetch('/admin/agents/1/publish', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({}),
+        });
+        const result = await resp.json();
+        if (result.status === 'success') {
+            data.agent.status = 'published';
+            data.showToast('发布成功！', 'success');
+        } else {
+            data.showToast('发布失败：' + (result.message || '未知错误'), 'error');
+        }
+    } catch(e) {
+        data.showToast('发布失败：' + e.message, 'error');
+    }
+}
+
+// Bind buttons when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    const saveBtn = document.getElementById('saveAndApplyBtn');
+    const pubBtn = document.getElementById('publishBtn');
+    
+    if (saveBtn) {
+        saveBtn.onclick = handleSaveAndApply;
+        console.log('[保存并应用] 按钮已绑定');
+    }
+    if (pubBtn) {
+        pubBtn.onclick = handlePublish;
+    }
+});
+</script>

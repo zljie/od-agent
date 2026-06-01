@@ -575,32 +575,127 @@ def create_app() -> FastAPI:
 
     @app.post("/admin/agents/{agent_id}/model")
     async def save_model(request: Request, agent_id: str):
-        """Save model configuration."""
+        """Save model configuration and hot-reload the agent in development mode."""
         body = await request.json()
         current_config = load_agent_config()
         current_config.setdefault("model_config", {}).update(body)
         save_agent_config(current_config)
-        return {"status": "success", "message": "模型配置已保存"}
+        
+        # Hot-reload agent in development mode (not published)
+        reload_result = {"status": "success"}
+        if current_config.get("status") != "published":
+            try:
+                agent = reload_agent()
+                reload_result = {
+                    "status": "success",
+                    "hot_reload": True,
+                    "message": "模型配置已保存并应用（热更新）",
+                }
+                print(f"[HOT-RELOAD] Agent reloaded after model config change")
+            except Exception as e:
+                reload_result = {
+                    "status": "partial",
+                    "hot_reload": False,
+                    "message": f"配置已保存但热更新失败: {str(e)}",
+                }
+        else:
+            reload_result = {
+                "status": "success",
+                "hot_reload": False,
+                "message": "模型配置已保存（生产模式，请发布后生效）",
+            }
+        
+        return reload_result
 
     @app.post("/admin/agents/{agent_id}/prompt")
     async def save_prompt(request: Request, agent_id: str):
-        """Save prompt configuration."""
+        """Save prompt configuration and hot-reload the agent in development mode."""
         body = await request.json()
         current_config = load_agent_config()
         current_config.setdefault("prompt_config", {}).update(body)
         if "system_prompt" in body:
             current_config["system_prompt"] = body["system_prompt"]
         save_agent_config(current_config)
-        return {"status": "success", "message": "Prompt 配置已保存"}
+        
+        # Hot-reload agent in development mode (not published)
+        reload_result = {"status": "success"}
+        if current_config.get("status") != "published":
+            try:
+                agent = reload_agent()
+                reload_result = {
+                    "status": "success",
+                    "hot_reload": True,
+                    "message": "Prompt 配置已保存并应用（热更新）",
+                }
+                print(f"[HOT-RELOAD] Agent reloaded after prompt change, new prompt: {body.get('system_prompt', '')[:50]}...")
+            except Exception as e:
+                reload_result = {
+                    "status": "partial",
+                    "hot_reload": False,
+                    "message": f"配置已保存但热更新失败: {str(e)}",
+                }
+        else:
+            reload_result = {
+                "status": "success",
+                "hot_reload": False,
+                "message": "Prompt 配置已保存（生产模式，请发布后生效）",
+            }
+        
+        return reload_result
 
     @app.post("/admin/agents/{agent_id}/save-draft")
     async def save_draft(request: Request, agent_id: str):
-        """Save full draft configuration."""
+        """Save full draft configuration and hot-reload the agent in development mode."""
         body = await request.json()
         current_config = load_agent_config()
         current_config.update(body)
         save_agent_config(current_config)
-        return {"status": "success", "message": "草稿已保存"}
+        
+        # Hot-reload agent in development mode (not published)
+        reload_result = {"status": "success"}
+        if current_config.get("status") != "published":
+            try:
+                agent = reload_agent()
+                reload_result = {
+                    "status": "success",
+                    "hot_reload": True,
+                    "message": "草稿已保存并应用（热更新）",
+                }
+                print(f"[HOT-RELOAD] Agent reloaded after draft save")
+            except Exception as e:
+                reload_result = {
+                    "status": "partial",
+                    "hot_reload": False,
+                    "message": f"草稿已保存但热更新失败: {str(e)}",
+                }
+        else:
+            reload_result = {
+                "status": "success",
+                "hot_reload": False,
+                "message": "草稿已保存（生产模式，请发布后生效）",
+            }
+        
+        return reload_result
+
+    @app.post("/admin/agents/{agent_id}/hot-reload")
+    async def hot_reload_agent(request: Request, agent_id: str):
+        """Manually trigger agent hot-reload to apply latest configuration.
+        
+        This endpoint is designed for development mode where we want immediate
+        effect without the publish flow.
+        """
+        current_config = load_agent_config()
+        try:
+            agent = reload_agent()
+            print(f"[HOT-RELOAD] Manual hot-reload triggered")
+            return {
+                "status": "success",
+                "message": "Agent 已热更新，当前配置已生效",
+                "system_prompt_preview": agent.system_prompt[:100] + "..." if len(agent.system_prompt) > 100 else agent.system_prompt,
+                "model_name": agent.model.model if hasattr(agent, "model") else "unknown",
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"热更新失败: {str(e)}")
 
     @app.post("/admin/agents/{agent_id}/publish")
     async def publish_agent(request: Request, agent_id: str):

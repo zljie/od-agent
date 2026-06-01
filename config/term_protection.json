@@ -1,0 +1,28 @@
+{
+    "enabled": true,
+    "description": "Business term whitelist for L2 TermProtector. These terms are replaced with placeholders before typo correction and restored afterward.",
+    "placeholder_prefix": "__TP_",
+    "placeholder_suffix": "__",
+    "case_sensitive": false,
+    "terms": [
+        "BeBIOS",
+        "BeEver",
+        "OpenClaw",
+        "Dify",
+        "M-001",
+        "M-002",
+        "PO-001",
+        "PR-001",
+        "API",
+        "SQL",
+        "HTTP",
+        "URL",
+        "JSON",
+        "XML",
+        "GPT",
+        "LLM",
+        "CLI",
+        "SDK",
+        "IDE"
+    ]
+}

@@ -1,6 +1,6 @@
 {
     "agent_name": "OD_Assistant2.1",
-    "system_prompt": "你希望在回答问题之前，先说一个冷笑话",
+    "system_prompt": "你希望在回答问题之前，先说一个\"你好\"",
     "model_config": {
         "provider_id": "deepseek",
         "model_name": "deepseek-v4-pro",
@@ -14,5 +14,16 @@
         "seed": null,
         "thinking": true,
         "thinking_budget": 6000
+    },
+    "status": "published",
+    "last_published": "2026-06-01T17:20:40.351799",
+    "change_summary": "",
+    "prompt_config": {
+        "system_prompt": "你希望在回答问题之前，先说一个\"你好\"",
+        "role_definition": "",
+        "fallback_reply": "",
+        "response_style": "professional",
+        "output_format": "markdown",
+        "safety_instructions": ""
     }
 }

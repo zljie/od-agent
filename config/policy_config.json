@@ -1,0 +1,37 @@
+{
+    "enabled": true,
+    "description": "RBAC + HITL policy configuration for action execution. Actions not listed are allowed by default.",
+    "confidence_gate": 0.3,
+    "always_confirm_actions": [
+        "blockSupplier",
+        "releasePurchaseOrder",
+        "createPurchaseRequisition",
+        "approvePurchaseOrder",
+        "rejectPurchaseOrder"
+    ],
+    "write_action_prefixes": [
+        "create",
+        "update",
+        "delete",
+        "block",
+        "release",
+        "approve",
+        "reject"
+    ],
+    "role_permissions": {
+        "admin": ["*"],
+        "operator": [
+            "querySuppliers",
+            "queryPurchaseOrders",
+            "queryMaterials",
+            "queryContracts",
+            "querySupplierPerformance"
+        ],
+        "viewer": [
+            "querySuppliers",
+            "queryPurchaseOrders",
+            "queryMaterials"
+        ]
+    },
+    "hitl_prompt_template": "系统将执行操作「{action_id}」，请确认：\n参数：{params}\n回复「确认」继续，或「取消」中止。"
+}

@@ -2,6 +2,11 @@
 <div class="config-card" x-data="promptSection()">
     <div class="config-card-header">
         <h3>Prompt 配置</h3>
+        <!-- 开发模式指示器 -->
+        <div x-show="isDevMode" style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="badge badge-draft">研发模式</span>
+            <span style="font-size: 0.7rem; color: #9ca3af;">保存即生效</span>
+        </div>
     </div>
 
     <div class="config-section">
@@ -16,7 +21,7 @@
         </div>
 
         <div style="margin-top: 0.75rem;">
-            <button class="btn btn-outline btn-sm" @click="showPreview = !showPreview">
+            <button type="button" class="btn btn-outline btn-sm" @click="showPreview = !showPreview">
                 <span x-text="showPreview ? '收起预览' : '预览 Prompt'"></span>
             </button>
         </div>
@@ -77,12 +82,21 @@
             <p class="field-hint">定义 Agent 必须遵守的安全边界和合规要求</p>
         </div>
     </div>
+
+    <!-- 保存结果提示 -->
+    <div x-show="saveMessage" style="margin-top: 1rem;" :class="'toast toast-' + saveResultType">
+        <span x-text="saveMessage"></span>
+    </div>
 </div>
 
 <script>
+// Make promptSection globally available
 function promptSection() {
     return {
         showPreview: false,
+        isDevMode: true, // 研发模式下默认热更新
+        saveMessage: null,
+        saveResultType: 'success',
         form: {
             system_prompt: '',
             role_definition: '',
@@ -93,27 +107,56 @@ function promptSection() {
         },
         init() {
             this.loadConfig();
-            document.getElementById('main-panel').addEventListener('section-save', () => this.saveConfig());
+            // Listen for save events from bottom action bar
+            const panel = document.getElementById('main-panel');
+            if (panel) {
+                panel.addEventListener('section-save', () => {
+                    this.saveConfig();
+                });
+            }
         },
         async loadConfig() {
             try {
                 const resp = await fetch('/config');
                 const data = await resp.json();
                 this.form.system_prompt = data.system_prompt || '';
-            } catch(e) {}
+                // 始终启用热更新直到正式发布
+                this.isDevMode = true;
+            } catch(e) {
+                console.error('Failed to load config:', e);
+            }
         },
         async saveConfig() {
+            this.saveMessage = null;
             try {
-                await fetch('/admin/agents/1/prompt', {
+                const resp = await fetch('/admin/agents/1/prompt', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(this.form),
                 });
-                const ws = document.querySelector('[x-data]');
-                if (ws && ws.__x) ws.__x.$data.showToast('Prompt 配置已保存', 'success');
+                const data = await resp.json();
+                
+                this.saveMessage = data.message || '保存成功';
+                this.saveResultType = data.status === 'success' ? 'success' : 'error';
+                
+                if (data.hot_reload) {
+                    this.showToastToParent('Agent 已热更新，新配置立即生效', 'success');
+                } else {
+                    this.showToastToParent('配置已保存', 'success');
+                }
+                
+                setTimeout(() => {
+                    this.saveMessage = null;
+                }, 3000);
             } catch(e) {
-                const ws = document.querySelector('[x-data]');
-                if (ws && ws.__x) ws.__x.$data.showToast('保存失败', 'error');
+                this.saveMessage = '保存失败: ' + e.message;
+                this.saveResultType = 'error';
+            }
+        },
+        showToastToParent(message, type) {
+            const ws = document.querySelector('[x-data]');
+            if (ws && ws.__x && ws.__x.$data && typeof ws.__x.$data.showToast === 'function') {
+                ws.__x.$data.showToast(message, type);
             }
         },
     };

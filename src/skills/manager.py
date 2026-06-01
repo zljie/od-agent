@@ -20,6 +20,9 @@ from .task_executor import TaskExecutor
 from .math_teacher import MathTeacherSkill
 from .time_converter import TimeConverterSkill
 from .semantic_skill import SemanticSkill, _load_semantic_config
+from ..policy import PolicyEngine, load_policy_config
+from ..semantic.task_validator import TaskValidator
+from ..audit import AuditEvent, AuditSink, create_audit_sink, load_audit_config
 
 if TYPE_CHECKING:
     from ..agent import CustomerServiceAgent
@@ -58,6 +61,34 @@ class SkillManager:
             graphql_endpoint=sem_cfg.get("graphql_endpoint") or None,
             use_demo_model=sem_cfg.get("use_demo", False),
         ))
+
+        # Wire TaskValidator and PolicyEngine into the executor after skills are registered
+        self._setup_security_components()
+
+    def _setup_security_components(self):
+        """Initialize TaskValidator and PolicyEngine, wire into TaskExecutor."""
+        # Policy engine: loaded from config with fallback defaults
+        policy_cfg = load_policy_config()
+        self._policy_engine = PolicyEngine(policy_cfg)
+        self._executor.set_policy_engine(self._policy_engine)
+
+        # TaskValidator: lazily wired to SemanticSkill's backend
+        self._task_validator = TaskValidator()
+        self._executor.set_validator(self._task_validator)
+
+        # When SemanticSkill backend is loaded, wire it into the validator
+        sem_skill = self._registry.get("Semantic Query")
+        if sem_skill is not None:
+            try:
+                sem_skill._ensure_loaded()
+                if sem_skill.backend is not None:
+                    self._task_validator.set_backend(sem_skill.backend)
+            except Exception:
+                pass  # Backend not yet available; will be wired on first load
+
+        # Audit sink: initialized after all components to capture the full pipeline
+        audit_cfg = load_audit_config()
+        self._audit_sink = create_audit_sink(audit_cfg)
 
     def _resolve_today_date(self):
         """Resolve the current local date via TimeConverterSkill.
@@ -191,6 +222,25 @@ class SkillManager:
 
         decision = plan.decision.value
 
+        # ── Audit: REQUEST event ─────────────────────────────────────────────────
+        rag_hit_count = 0
+        corrections = []
+        if decision == "execute" or decision == "delegate_llm":
+            try:
+                ont_ctx = self.get_ontology_context_for_message(user_input)
+                rag_hit_count = len(ont_ctx.get("relevant_datasets", []))
+            except Exception:
+                pass
+
+        self._audit_sink.record_request(
+            user_input=user_input,
+            intent_type=primary.intent_type,
+            confidence=primary.confidence,
+            decision=decision,
+            rag_hit_count=rag_hit_count,
+            temporal_anchors=list(temporal.dates.keys()) if temporal else [],
+        )
+
         # 3. Route on decision
         if decision == "reject":
             return {
@@ -204,6 +254,14 @@ class SkillManager:
             }
 
         if decision == "clarify":
+            self._audit_sink.write(AuditEvent.REQUEST, {
+                "user_input": user_input,
+                "intent_type": primary.intent_type,
+                "confidence": primary.confidence,
+                "decision": decision,
+                "rag_hit_count": 0,
+                "hitl_prompt": plan.hitl_prompt,
+            })
             return {
                 "decision": decision,
                 "response": plan.hitl_prompt,
@@ -215,6 +273,12 @@ class SkillManager:
             }
 
         if decision == "hitl_confirm":
+            self._audit_sink.write(AuditEvent.HITL_TRIGGER, {
+                "user_input": user_input,
+                "intent_type": primary.intent_type,
+                "confidence": primary.confidence,
+                "hitl_prompt": plan.hitl_prompt,
+            })
             return {
                 "decision": decision,
                 "response": plan.hitl_prompt,
@@ -226,6 +290,13 @@ class SkillManager:
             }
 
         if decision == "slot_missing":
+            self._audit_sink.write(AuditEvent.REQUEST, {
+                "user_input": user_input,
+                "intent_type": primary.intent_type,
+                "confidence": primary.confidence,
+                "decision": decision,
+                "warnings": plan.warnings,
+            })
             return {
                 "decision": decision,
                 "response": "请提供必要的信息：" + ", ".join(plan.warnings),

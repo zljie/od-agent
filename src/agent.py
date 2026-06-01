@@ -22,6 +22,7 @@ from .intent import (
     extract_math_entities,
     extract_day_of_week_entities,
 )
+from .preprocessing import InputPreprocessingPipeline, load_preprocessing_config
 from .models import get_model_config
 from .planner import RuleBasedPlanner
 from .skills import get_skill_manager, reload_skill_manager
@@ -142,6 +143,16 @@ class CustomerServiceAgent:
 
         # Wire up the full Intent → Plan → Execute pipeline
         self._setup_intent_pipeline()
+
+        # Initialize input preprocessing pipeline (L1-L3)
+        # Pass SemanticSkill so TermProtector can load ontology synonyms if configured
+        self._preprocessing_cfg = load_preprocessing_config()
+        self._preprocessing: Optional[InputPreprocessingPipeline] = None
+        if self._preprocessing_cfg.get("enabled", True):
+            sem_skill = self._skill_manager.get_skill("Semantic Query")
+            self._preprocessing = InputPreprocessingPipeline.from_config(
+                self._preprocessing_cfg, sem_skill=sem_skill
+            )
 
     def _load_intent_rules(self) -> None:
         """Load intent routing rules from config."""
@@ -271,6 +282,21 @@ class CustomerServiceAgent:
         """Process user input and return agent response."""
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"\n{ts} [CHAT] (non-streaming) user_input={user_input}")
+
+        # L1-L3: Input preprocessing — never modifies raw_input
+        pp_result = None
+        if self._preprocessing and self._preprocessing.is_enabled:
+            pp_result = self._preprocessing.process(user_input)
+            user_input = pp_result.normalized_input
+            if pp_result.has_corrections:
+                corrections_str = ", ".join(
+                    f"'{c.original}'→'{c.corrected}'" for c in pp_result.corrections
+                )
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [PREPROCESSING] corrections={corrections_str}")
+            if pp_result.protected_terms:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [PREPROCESSING] protected_terms={pp_result.protected_terms}")
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"{ts} [CHAT] model={self.model.model}, thinking_enable={self.model.parameters.thinking_enable}, reasoning_effort={self.model.parameters.reasoning_effort}")
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -397,6 +423,17 @@ class CustomerServiceAgent:
         from .sse_stream import (
             done,
         )
+
+        # L1-L3: Input preprocessing — never modifies raw_input
+        if self._preprocessing and self._preprocessing.is_enabled:
+            pp_result = self._preprocessing.process(user_input)
+            user_input = pp_result.normalized_input
+            if pp_result.has_corrections:
+                corrections_str = ", ".join(
+                    f"'{c.original}'→'{c.corrected}'" for c in pp_result.corrections
+                )
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [PREPROCESSING] corrections={corrections_str}")
 
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"\n{ts} [CHAT STREAM] user_input={user_input}")
@@ -578,12 +615,45 @@ def get_agent() -> CustomerServiceAgent:
 
 
 def reload_agent() -> CustomerServiceAgent:
-    """Reload the agent with fresh configuration."""
+    """Reload the agent with fresh configuration.
+    
+    In development mode (status != 'published'), this performs a hot-reload
+    by recreating the agent with the latest config, preserving conversation
+    history if possible.
+    """
     global _agent
+    old_agent = _agent
     _agent = None
-    # Also reload skill manager
+    
+    # Reload skill manager to pick up any config changes
     reload_skill_manager()
-    return get_agent()
+    
+    # Create new agent with latest config
+    new_agent = get_agent()
+    
+    # In development mode (draft): preserve conversation history for hot-reload
+    # In production (published): fresh start
+    if old_agent is not None:
+        config = load_agent_config()
+        if config.get("status") != "published":
+            # Hot-reload: try to preserve history
+            try:
+                if hasattr(old_agent.agent, "state") and hasattr(new_agent.agent, "state"):
+                    # Copy conversation history
+                    if hasattr(old_agent.agent.state, "context"):
+                        new_agent.agent.state.context = old_agent.agent.state.context.copy()
+                    # Preserve active skill
+                    if hasattr(old_agent, "_active_skill"):
+                        new_agent._active_skill = old_agent._active_skill
+                    print(f"[HOT-RELOAD] Agent reloaded with latest config, history preserved")
+                else:
+                    print(f"[HOT-RELOAD] Agent reloaded with latest config")
+            except Exception as e:
+                print(f"[HOT-RELOAD] Warning: could not preserve history: {e}")
+        else:
+            print(f"[RELOAD] Agent reloaded (production mode, history cleared)")
+    
+    return new_agent
 
 
 def create_agent() -> CustomerServiceAgent:

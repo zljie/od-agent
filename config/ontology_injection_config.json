@@ -1,0 +1,24 @@
+{
+    "enabled": true,
+    "description": "Controls fine-grained ontology injection at each thinking phase (Perceive/Learn/Reason/Act).",
+    "phases": {
+        "perceive": {
+            "use_ontology_synonyms": false,
+            "description": "Use ontology ai_context.synonyms to extend the term protection whitelist",
+            "max_synonyms": 50
+        },
+        "reason": {
+            "inject_on_reason": true,
+            "description": "Inject ontology context (relevant datasets, synonyms, examples) into LLM prompt",
+            "max_datasets": 15,
+            "show_examples": true,
+            "show_relationships": false,
+            "show_rules": false
+        },
+        "act": {
+            "validator_enabled": true,
+            "description": "Run TaskValidator preflight before every skill execution",
+            "fail_on_validation_error": true
+        }
+    }
+}

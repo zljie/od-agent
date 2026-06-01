@@ -2,10 +2,21 @@
 
 import asyncio
 import re as _re
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 from .skill_registry import SkillRegistry
 from ..planner.task_plan import TaskNode, TaskPlan
+
+if TYPE_CHECKING:
+    from ..policy import PolicyEngine
+    from ..semantic.task_validator import TaskValidator
+
+
+# Write-action prefixes for automatic HITL escalation
+_WRITE_ACTION_PREFIXES = frozenset([
+    "create", "update", "delete", "block", "release",
+    "approve", "reject", "add", "remove", "modify",
+])
 
 
 class TaskExecutor:
@@ -18,11 +29,24 @@ class TaskExecutor:
     - Graceful fallback to LLM when skill returns "需要更多信息"
     """
 
-    def __init__(self, registry: Optional[SkillRegistry] = None):
+    def __init__(
+        self,
+        registry: Optional[SkillRegistry] = None,
+        task_validator: Optional["TaskValidator"] = None,
+        policy_engine: Optional["PolicyEngine"] = None,
+    ):
         self._registry = registry or SkillRegistry()
+        self._validator = task_validator
+        self._policy = policy_engine
 
     def set_registry(self, registry: SkillRegistry) -> None:
         self._registry = registry
+
+    def set_validator(self, validator: "TaskValidator") -> None:
+        self._validator = validator
+
+    def set_policy_engine(self, engine: "PolicyEngine") -> None:
+        self._policy = engine
 
     async def execute(self, plan: TaskPlan) -> List[Dict[str, Any]]:
         """Execute a TaskPlan and return a list of task results."""
@@ -42,6 +66,28 @@ class TaskExecutor:
 
             # Resolve cross-skill placeholders (e.g. "{Time_Converter.days}")
             resolved_params = self._resolve_params(node.params, results)
+
+            # ── Ontology preflight: validate action against OSIModel ──────────────────
+            # Extract the effective action_id from the semantic context if available
+            action_id = self._resolve_action_id(node, skill, resolved_params)
+            if self._validator is not None and action_id:
+                verdict = self._validator.preflight(action_id, resolved_params)
+                if not verdict.ok:
+                    return self._node_result(
+                        node, None, False,
+                        f"[Ontology Preflight Failed] {verdict.reason}"
+                    )
+
+            # ── Policy check: RBAC + HITL gating ──────────────────────────────────
+            if self._policy is not None and action_id:
+                is_write = any(
+                    action_id.lower().startswith(p) for p in _WRITE_ACTION_PREFIXES
+                )
+                if self._policy.requires_hitl(action_id, is_write_action=is_write):
+                    return self._node_result(
+                        node, None, False,
+                        f"[HITL Required] {self._policy.get_hitl_prompt(action_id, resolved_params)}"
+                    )
 
             try:
                 result = await skill.execute({"params": resolved_params, "message": node.user_message or ""})
@@ -113,6 +159,29 @@ class TaskExecutor:
                 resolved[key] = value
         return resolved
 
+    def _resolve_action_id(
+        self,
+        node: TaskNode,
+        skill: Any,
+        resolved_params: Dict[str, Any],
+    ) -> Optional[str]:
+        """Infer the effective action_id for a skill node for preflight validation.
+
+        Tries: MCP tool name > semantic_skill backend action > skill_id itself.
+        Returns None if no backend is configured (backward compat).
+        """
+        # Priority 1: MCP tool name from SemanticSkill
+        if hasattr(skill, "backend") and skill.backend is not None:
+            # Derive action_id from skill's intent_type mapping
+            # SemanticQuery skill → ontology action mapping
+            if hasattr(skill, "name") and skill.name == "Semantic Query":
+                # For semantic queries, extract action from params or use default
+                return resolved_params.get("action_id", "semanticQuery")
+
+        # Priority 2: skill name as action_id (convention: skill names map to actions)
+        skill_name = node.skill_id.replace(" ", "").replace("_", "")
+        return skill_name
+
     def aggregate_responses(self, results: List[Dict[str, Any]]) -> str:
         """Combine task results into a single user-facing response.
 
@@ -169,6 +238,27 @@ class TaskExecutor:
                 return self._node_result(node, None, False, f"Skill '{node.skill_id}' not found")
 
             resolved_params = self._resolve_params(node.params, results)
+
+            # ── Ontology preflight: validate action against OSIModel ──────────────────
+            action_id = self._resolve_action_id(node, skill, resolved_params)
+            if self._validator is not None and action_id:
+                verdict = self._validator.preflight(action_id, resolved_params)
+                if not verdict.ok:
+                    return self._node_result(
+                        node, None, False,
+                        f"[Ontology Preflight Failed] {verdict.reason}"
+                    )
+
+            # ── Policy check: RBAC + HITL gating ──────────────────────────────────
+            if self._policy is not None and action_id:
+                is_write = any(
+                    action_id.lower().startswith(p) for p in _WRITE_ACTION_PREFIXES
+                )
+                if self._policy.requires_hitl(action_id, is_write_action=is_write):
+                    return self._node_result(
+                        node, None, False,
+                        f"[HITL Required] {self._policy.get_hitl_prompt(action_id, resolved_params)}"
+                    )
 
             # Assign a spec-compliant tool_id
             tool_id = f"call_{len(results):03d}"
