@@ -1,0 +1,318 @@
+<div class="procurement-demo">
+  <div class="demo-header">
+    <h3>采购管理助手 - 场景测试</h3>
+    <p class="demo-description">基于采购本体 v1.6.2 的智能采购助手，支持询价、比价、采购订单管理等场景</p>
+  </div>
+
+  <div class="demo-intents">
+    <h4>支持的场景</h4>
+    <div class="intent-tags">
+      <span class="tag" data-intent="procurement/query_open_pr">查询采购需求</span>
+      <span class="tag" data-intent="procurement/create_inquiry">创建询价单</span>
+      <span class="tag" data-intent="procurement/compare_quotations">比价分析</span>
+      <span class="tag" data-intent="procurement/create_purchase_order">创建采购订单</span>
+      <span class="tag" data-intent="procurement/query_order_status">查询订单状态</span>
+    </div>
+  </div>
+
+  <div class="demo-chat">
+    <div class="chat-messages" id="chatMessages">
+      <div class="message bot-message">
+        <div class="message-content">
+          您好！我是采购管理助手，可以帮您处理以下采购业务：
+          <ul>
+            <li>查询未执行的采购需求</li>
+            <li>基于采购需求创建询价单</li>
+            <li>对供应商报价进行比价分析</li>
+            <li>审批中标报价</li>
+            <li>创建采购订单</li>
+            <li>查询采购订单执行情况</li>
+          </ul>
+          请告诉我您需要什么帮助？
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input">
+      <input type="text" id="userInput" placeholder="输入您的采购需求..." autocomplete="off">
+      <button id="sendBtn" onclick="sendMessage()">发送</button>
+    </div>
+  </div>
+
+  <div class="demo-debug" id="debugPanel">
+    <h4>调试信息</h4>
+    <div class="debug-content">
+      <div class="debug-section">
+        <strong>意图识别:</strong>
+        <pre id="intentDebug">-</pre>
+      </div>
+      <div class="debug-section">
+        <strong>执行结果:</strong>
+        <pre id="resultDebug">-</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.procurement-demo {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.demo-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.demo-header h3 {
+  margin: 0 0 8px 0;
+  color: #333;
+}
+
+.demo-description {
+  color: #666;
+  margin: 0;
+  font-size: 14px;
+}
+
+.demo-intents {
+  margin-bottom: 20px;
+}
+
+.demo-intents h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #555;
+}
+
+.intent-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag {
+  background: #e8f4ff;
+  color: #0066cc;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tag:hover {
+  background: #d0e8ff;
+  transform: translateY(-1px);
+}
+
+.demo-chat {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.chat-messages {
+  min-height: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.message {
+  margin-bottom: 12px;
+  display: flex;
+}
+
+.message-content {
+  max-width: 80%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.message-content ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.user-message {
+  justify-content: flex-end;
+}
+
+.user-message .message-content {
+  background: #0066cc;
+  color: white;
+}
+
+.bot-message {
+  justify-content: flex-start;
+}
+
+.bot-message .message-content {
+  background: white;
+  color: #333;
+  border: 1px solid #e0e0e0;
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.chat-input input:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+.chat-input button {
+  padding: 12px 24px;
+  background: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.chat-input button:hover {
+  background: #0052a3;
+}
+
+.demo-debug {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.demo-debug h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #555;
+}
+
+.debug-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.debug-section {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.debug-section strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.debug-section pre {
+  margin: 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+</style>
+
+<script>
+async function sendMessage() {
+  const input = document.getElementById('userInput');
+  const message = input.value.trim();
+
+  if (!message) return;
+
+  // Add user message
+  addMessage(message, 'user');
+  input.value = '';
+
+  // Add loading indicator
+  const loadingId = addMessage('处理中...', 'bot', true);
+
+  try {
+    const response = await fetch('/procurement/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: message })
+    });
+
+    const data = await response.json();
+
+    // Remove loading
+    document.getElementById(loadingId)?.remove();
+
+    // Add bot response
+    addMessage(data.response || '处理完成', 'bot');
+
+    // Update debug info
+    document.getElementById('resultDebug').textContent = JSON.stringify(data, null, 2);
+
+  } catch (error) {
+    document.getElementById(loadingId)?.remove();
+    addMessage('抱歉，发生了错误: ' + error.message, 'bot');
+  }
+}
+
+function addMessage(content, type, isLoading = false) {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = `message ${type}-message`;
+
+  if (isLoading) {
+    div.id = 'loading-' + Date.now();
+  }
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'message-content';
+  contentDiv.textContent = content;
+
+  div.appendChild(contentDiv);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+
+  return div.id;
+}
+
+// Click on intent tags to auto-fill input
+document.querySelectorAll('.tag').forEach(tag => {
+  tag.addEventListener('click', () => {
+    const intent = tag.dataset.intent;
+    const input = document.getElementById('userInput');
+
+    const exampleMessages = {
+      'procurement/query_open_pr': '帮我查一下目前还有哪些采购需求没有执行',
+      'procurement/create_inquiry': '基于PR-20260528-001创建询价单',
+      'procurement/compare_quotations': '开始比价',
+      'procurement/create_purchase_order': '基于PR-20260528-001和QUO-002创建采购订单',
+      'procurement/query_order_status': '帮我查一下PO-20260528-001的执行情况'
+    };
+
+    input.value = exampleMessages[intent] || '';
+    input.focus();
+  });
+});
+
+// Enter key to send
+document.getElementById('userInput').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    sendMessage();
+  }
+});
+</script>

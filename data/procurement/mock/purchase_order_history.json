@@ -1,0 +1,21 @@
+{
+  "purchase_order_history": [
+    {
+      "gr_id": "GR-20260601-001",
+      "gr_item": "0001",
+      "year_id": "2026",
+      "gr_date": "2026-06-01",
+      "business_type": "标准采购订单",
+      "movt_type": "101",
+      "material_id": "SKU001",
+      "material_d": "联想ThinkPad T490 笔记本电脑",
+      "quantity": 6,
+      "unit_id": "EA",
+      "net_price": 29394.00,
+      "currency": "CNY",
+      "po_id": "PO-20260528-001",
+      "po_item": "0001",
+      "dc": "D"
+    }
+  ]
+}

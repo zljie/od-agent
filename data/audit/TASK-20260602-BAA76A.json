@@ -1,0 +1,27 @@
+{
+  "taskId": "TASK-20260602-BAA76A",
+  "userInput": "先处理采购类型为汽车制造的采购需求”或先处理**部门提交的采购需求",
+  "intent": "procurement/query_unexecuted_pr",
+  "intentLabel": "查询未执行采购需求",
+  "ontologyVersion": "0.1.2",
+  "matchedObjects": [
+    "purchase_requests"
+  ],
+  "matchedActions": [
+    "purchase_requests/list"
+  ],
+  "connectors": [
+    "ProcurementConnector"
+  ],
+  "confirmationRequired": [],
+  "finalStatus": "completed",
+  "totalDurationMs": 9998.969554901123,
+  "stepDurations": {
+    "1": 4271.323919296265,
+    "2": 0.34880638122558594,
+    "3": 4398.060083389282,
+    "4": 0.3707408905029297,
+    "5": 1328.8660049438477
+  },
+  "createdAt": "2026-06-02T23:39:37.906969"
+}

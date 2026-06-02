@@ -1,5 +1,70 @@
 [
   {
+    "id": "run_d895031b",
+    "timestamp": "2026-06-02T17:57:04.215449",
+    "message": "1211",
+    "user_profile": "normal_user",
+    "selected_intent": "human_handoff",
+    "confidence": 0.1,
+    "candidates": [
+      {
+        "intent": "human_handoff",
+        "intent_id": "intent_human_handoff",
+        "display_name": "转人工客服",
+        "confidence": 0.1,
+        "reason": "语义匹配",
+        "route_target": "human_service_queue",
+        "route_type": "human_handoff",
+        "selected": true
+      },
+      {
+        "intent": "logistics_tracking",
+        "intent_id": "intent_logistics_tracking",
+        "display_name": "物流追踪",
+        "confidence": 0.098,
+        "reason": "语义匹配",
+        "route_target": "logistics_tracking_skill",
+        "route_type": "skill",
+        "selected": false
+      },
+      {
+        "intent": "order_query",
+        "intent_id": "intent_order_query",
+        "display_name": "订单查询",
+        "confidence": 0.09000000000000001,
+        "reason": "语义匹配",
+        "route_target": "order_lookup_skill",
+        "route_type": "skill",
+        "selected": false
+      },
+      {
+        "intent": "refund_request",
+        "intent_id": "intent_refund_request",
+        "display_name": "退款申请",
+        "confidence": 0.085,
+        "reason": "语义匹配",
+        "route_target": "refund_process_skill",
+        "route_type": "skill",
+        "selected": false
+      },
+      {
+        "intent": "product_info",
+        "intent_id": "intent_product_info",
+        "display_name": "商品咨询",
+        "confidence": 0.06999999999999999,
+        "reason": "语义匹配",
+        "route_target": "product_knowledge_base",
+        "route_type": "knowledge_base",
+        "selected": false
+      }
+    ],
+    "route_target": "human_service_queue",
+    "route_type": "human_handoff",
+    "executable": true,
+    "missing_slots": [],
+    "next_action": "executable"
+  },
+  {
     "id": "run_4f8e2a1c",
     "timestamp": "2026-06-02T10:40:00.000000",
     "message": "我要退款",

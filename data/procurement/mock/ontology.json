@@ -1,0 +1,91 @@
+{
+  "version": "1.0.0",
+  "objects": [
+    {
+      "type": "purchase_request",
+      "label": "采购需求",
+      "description": "企业的采购需求记录",
+      "synonyms": ["采购计划", "物料需求", "需求单"],
+      "keywords": ["采购需求", "采购计划", "未执行", "待处理"],
+      "attributes": [
+        {"key": "pr_id", "label": "采购需求编号", "usage": "display"},
+        {"key": "material_id", "label": "物料编码", "usage": "display"},
+        {"key": "material_d", "label": "物料描述", "usage": "display"},
+        {"key": "quantity", "label": "数量", "usage": "display"},
+        {"key": "unit_id", "label": "单位", "usage": "display"},
+        {"key": "apply_dep", "label": "申请部门", "usage": "filter"},
+        {"key": "applicant", "label": "申请人", "usage": "display"},
+        {"key": "delivery_date", "label": "需求日期", "usage": "display"},
+        {"key": "status", "label": "执行状态", "usage": "filter"},
+        {"key": "flow_status", "label": "审批状态", "usage": "filter"},
+        {"key": "delete_flag", "label": "删除标记", "usage": "filter"},
+        {"key": "source_type", "label": "来源类型", "usage": "audit"},
+        {"key": "pr_type", "label": "采购类型", "usage": "filter"}
+      ],
+      "actions": [
+        {"id": "purchase_request/list", "label": "查询采购需求", "operation_type": "query"},
+        {"id": "purchase_request/list_unexecuted", "label": "查询未执行采购需求", "operation_type": "query"},
+        {"id": "purchase_request/get_by_id", "label": "获取采购需求详情", "operation_type": "query"},
+        {"id": "purchase_request/approve", "label": "审批采购需求", "operation_type": "update"}
+      ]
+    },
+    {
+      "type": "purchase_inquiry",
+      "label": "询价单",
+      "description": "向供应商发起询价的单据",
+      "synonyms": ["询价", "RFQ"],
+      "keywords": ["询价单", "询价"],
+      "attributes": [
+        {"key": "inquiry_id", "label": "询价单号", "usage": "display"},
+        {"key": "material_d", "label": "物料描述", "usage": "display"},
+        {"key": "quantity", "label": "数量", "usage": "display"},
+        {"key": "status", "label": "状态", "usage": "filter"},
+        {"key": "inquiry_type", "label": "询价类型", "usage": "filter"},
+        {"key": "pr_id", "label": "关联采购需求", "usage": "display"}
+      ],
+      "actions": [
+        {"id": "purchase_inquiry/list", "label": "查询询价单", "operation_type": "query"},
+        {"id": "purchase_inquiry/create_from_pr", "label": "基于采购需求创建询价单", "operation_type": "create"}
+      ]
+    },
+    {
+      "type": "purchase_quotation",
+      "label": "报价单",
+      "description": "供应商对询价单的报价",
+      "synonyms": ["报价", "QUO"],
+      "keywords": ["报价单", "报价", "比价"],
+      "attributes": [
+        {"key": "quotation_id", "label": "报价单号", "usage": "display"},
+        {"key": "vendor_d", "label": "供应商", "usage": "display"},
+        {"key": "net_price", "label": "净价", "usage": "display"},
+        {"key": "status", "label": "状态", "usage": "filter"},
+        {"key": "inquiry_id", "label": "关联询价单", "usage": "display"}
+      ],
+      "actions": [
+        {"id": "purchase_quotation/list", "label": "查询报价单", "operation_type": "query"},
+        {"id": "purchase_quotation/compare", "label": "比价分析", "operation_type": "query"},
+        {"id": "purchase_quotation/approve_award", "label": "审批中标", "operation_type": "update"}
+      ]
+    },
+    {
+      "type": "purchase_order",
+      "label": "采购订单",
+      "description": "正式下达给供应商的采购订单",
+      "synonyms": ["PO", "采购单", "订单"],
+      "keywords": ["采购订单", "PO", "订单"],
+      "attributes": [
+        {"key": "po_id", "label": "订单号", "usage": "display"},
+        {"key": "vendor_d", "label": "供应商", "usage": "display"},
+        {"key": "contract_amount", "label": "订单金额", "usage": "display"},
+        {"key": "status", "label": "状态", "usage": "filter"},
+        {"key": "flow_status", "label": "审批状态", "usage": "filter"},
+        {"key": "currency", "label": "币种", "usage": "display"}
+      ],
+      "actions": [
+        {"id": "pruchase_order_head/list", "label": "查询采购订单", "operation_type": "query"},
+        {"id": "pruchase_order/query_execution_status", "label": "查询执行状态", "operation_type": "query"},
+        {"id": "pruchase_order/create_from_pr_and_quotation", "label": "创建采购订单", "operation_type": "create"}
+      ]
+    }
+  ]
+}

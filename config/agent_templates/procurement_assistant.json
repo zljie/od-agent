@@ -1,0 +1,133 @@
+{
+  "template_id": "procurement_assistant",
+  "name": "采购管理助手",
+  "description": "采购管理场景Agent模板，支持采购需求管理、询报价、比价、采购订单执行等全流程操作",
+  "version": "1.0.0",
+  "ontology": {
+    "path": "docs/procurement_ontology_v1_6_2",
+    "version": "1.6.2",
+    "description": "采购本体模型，覆盖采购需求、询价、报价、比价定标、采购订单、收货历史与订单执行跟踪"
+  },
+  "intents_module": "src.procurement.intents",
+  "connector_module": "src.procurement.connector",
+  "router_module": "src.procurement.intent_router",
+  "scenarios": [
+    {
+      "id": "query_open_pr",
+      "name": "发起采购需求",
+      "description": "查询当前未执行的采购需求列表"
+    },
+    {
+      "id": "create_inquiry",
+      "name": "询价",
+      "description": "基于审批通过的采购需求生成询价单"
+    },
+    {
+      "id": "compare_quotations",
+      "name": "比价",
+      "description": "对多家供应商的报价单进行比价分析"
+    },
+    {
+      "id": "create_purchase_order",
+      "name": "创建采购订单",
+      "description": "基于采购需求和有效报价单生成采购订单"
+    },
+    {
+      "id": "query_order_status",
+      "name": "订单执行查询",
+      "description": "查询采购订单状态（审批、发货、收货等）"
+    }
+  ],
+  "system_prompt": "你是采购管理助手，专门帮助用户处理采购相关业务。你可以帮助用户：\n\n1. 查询采购需求 - 查看未执行的采购需求列表\n2. 创建询价单 - 基于采购需求发起询价流程\n3. 比价分析 - 对多家供应商的报价进行比较分析\n4. 审批报价 - 审批中标供应商的报价单\n5. 创建采购订单 - 基于采购需求和报价单生成采购订单\n6. 查询订单执行 - 查看采购订单的执行状态和收货进度\n\n当用户提出问题时，请先理解用户意图，然后调用相应的连接器服务获取数据或执行操作。\n\n注意：\n- 始终使用专业的采购术语\n- 提供清晰的业务建议\n- 当需要用户确认时，明确告知需要用户提供的信息",
+  "entities": [
+    {
+      "name": "purchase_request",
+      "name_cn": "采购需求",
+      "description": "用于企业用户下达采购计划的载体",
+      "key_fields": ["pr_id", "pr_type", "material_id", "quantity", "delivery_date"]
+    },
+    {
+      "name": "purchase_inquiry",
+      "name_cn": "询价单",
+      "description": "用于企业用户市场询价的载体",
+      "key_fields": ["inquiry_id", "material_id", "quantity", "inquiry_end_date"]
+    },
+    {
+      "name": "purchase_quotation",
+      "name_cn": "报价单",
+      "description": "供应商针对询价的报价载体",
+      "key_fields": ["quotation_id", "vendor_id", "net_price", "price_start_date", "price_end_date"]
+    },
+    {
+      "name": "pruchase_order",
+      "name_cn": "采购订单",
+      "description": "用于企业用户下达采购需求至供应商",
+      "key_fields": ["po_id", "vendor_id", "contract_amount", "status"]
+    }
+  ],
+  "actions": {
+    "query": [
+      "purchase_request/list",
+      "purchase_inquiry/list",
+      "purchase_quotation/list",
+      "pruchase_order/query_execution_status",
+      "purchase_quotation/compare"
+    ],
+    "command": [
+      "purchase_request/approve",
+      "purchase_inquiry/create_from_pr",
+      "purchase_quotation/approve_award",
+      "pruchase_order/create_from_pr_and_quotation"
+    ]
+  },
+  "rules": [
+    {
+      "id": "procurement/rule_pr_approved_cannot_delete_or_modify",
+      "name": "已审批采购需求不可修改或删除",
+      "severity": "error"
+    },
+    {
+      "id": "procurement/rule_released_inquiry_cannot_delete_or_modify",
+      "name": "已发布询价单不可修改或删除",
+      "severity": "error"
+    },
+    {
+      "id": "procurement/rule_quotation_locked_or_expired_cannot_modify",
+      "name": "锁定或超期报价单不可修改删除",
+      "severity": "error"
+    },
+    {
+      "id": "procurement/rule_award_quote_requires_at_least_three_suppliers",
+      "name": "有效比价至少三家供应商",
+      "severity": "warn"
+    },
+    {
+      "id": "procurement/rule_approved_po_cannot_modify_or_delete",
+      "name": "已审批采购订单不可修改或删除",
+      "severity": "error"
+    }
+  ],
+  "examples": [
+    {
+      "user": "帮我查一下目前还有哪些采购需求没有执行",
+      "assistant": "好的，已为您检索到5条未执行的采购需求。其中3条来源于系统接口集成，2条为手工创建。需要我为您展示详细列表吗？"
+    },
+    {
+      "user": "基于PR-20260528-001创建询价单",
+      "assistant": "已基于采购需求 PR-20260528-001 自动生成询价单 RFQ-20260529-001，关联采购需求：PR-20260528-001，物料：联想ThinkPad T490 笔记本电脑，数量：10台。是否需要发布给供应商询价？"
+    },
+    {
+      "user": "开始比价",
+      "assistant": "已完成自动比价分析：\n推荐供应商：B公司（QUO-002）\n推荐理由：单价最低，综合成本最优\n参考依据：历史均价4950元、市场指数4900元\n议价建议区间：4700–4900元\n是否确认选择 B公司（QUO-002）并提交审批？"
+    },
+    {
+      "user": "查一下PO-20260528-001的执行情况",
+      "assistant": "采购订单 PO-20260528-001 执行状态如下：\n1. 审批状态：已通过\n2. 发货状态：部分发货\n3. 收货状态：部分收货\n4. 发票状态：未开票\n收货进度：60.0%\n后续状态变更将自动为您推送提醒。"
+    }
+  ],
+  "metadata": {
+    "author": "AI Agent Team",
+    "created_at": "2026-06-02",
+    "tags": ["采购", "采购管理", "询报价", "采购订单"]
+  }
+}

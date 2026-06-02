@@ -1,0 +1,45 @@
+{
+  "purchase_orders": [
+    {
+      "po_id": "PO-20260528-001",
+      "company_id": "C001",
+      "company_d": "总公司",
+      "potype_id": "NB",
+      "vendor_id": "V002",
+      "vendor_d": "B公司",
+      "purgroup_id": "PG01",
+      "purgroup_d": "IT设备采购组",
+      "contract_amount": 48990.00,
+      "currency": "CNY",
+      "appro_whe": "Y",
+      "flow_status": "APPROVED",
+      "status": "部分入库",
+      "delete_flag": "0"
+    }
+  ],
+  "purchase_order_items": [
+    {
+      "po_id": "PO-20260528-001",
+      "po_item": "0001",
+      "delete_flag": "0",
+      "material_id": "SKU001",
+      "material_d": "联想ThinkPad T490 笔记本电脑",
+      "factory_id": "F001",
+      "location_id": "L001",
+      "quantity": 10,
+      "unit_id": "EA",
+      "net_price": 4899.00,
+      "tax_id": "TAX13",
+      "price_unit": "1",
+      "delivery_date": "2026-06-15",
+      "pr_id": "PR-20260528-001",
+      "pr_item": "0001",
+      "inbound_state": "部分发货",
+      "returns": "N",
+      "free": "N",
+      "delivery_complete": "N",
+      "quotation_id": "QUO-002",
+      "quotation_item": "0001"
+    }
+  ]
+}

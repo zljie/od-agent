@@ -1,0 +1,325 @@
+{
+  "version": "1.0.0",
+  "description": "采购场景意图识别与条件提取测试案例集",
+  "base_date": "2026-06-02",
+  "test_cases": [
+    {
+      "case_id": "case_001",
+      "category": "时间+采购类型+物料分类",
+      "description": "上周采购类型为办公用品的采购需求",
+      "user_input": "先处理上周采购类型为办公用品的采购需求",
+      "expected_intent": "procurement/query_with_conditions",
+      "expected_slots": {
+        "time_range": {
+          "label": "上周",
+          "date_from_pattern": "2026-05-26",
+          "date_to_pattern": "2026-06-01"
+        },
+        "pr_type": "NB",
+        "material_category": "办公用品"
+      },
+      "expected_connector_params": {
+        "date_from": "2026-05-26",
+        "date_to": "2026-06-01",
+        "pr_type": "NB",
+        "material_category": "办公用品"
+      },
+      "expected_action": "analytics/find_purchase_requests_with_conditions",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_002",
+      "category": "时间+部门",
+      "description": "研发部上周的采购计划",
+      "user_input": "看看研发部上周有哪些未执行的采购计划",
+      "expected_intent": "procurement/query_with_conditions",
+      "expected_slots": {
+        "time_range": {
+          "label": "上周"
+        },
+        "department": "研发部",
+        "execution_status": "未执行"
+      },
+      "expected_connector_params": {
+        "date_from": "2026-05-26",
+        "date_to": "2026-06-01",
+        "apply_dep": "研发部",
+        "execution_status": "未执行"
+      },
+      "expected_action": "analytics/find_purchase_requests_with_conditions",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_003",
+      "category": "时间范围",
+      "description": "本月采购需求查询",
+      "user_input": "查一下本月生产采购的物料需求",
+      "expected_intent": "procurement/query_with_conditions",
+      "expected_slots": {
+        "time_range": {
+          "label": "本月"
+        },
+        "pr_type": "生产采购"
+      },
+      "expected_connector_params": {
+        "date_from_pattern": "2026-06-01",
+        "date_to_pattern": "2026-06-30",
+        "pr_type": "生产采购"
+      },
+      "expected_action": "analytics/find_purchase_requests_with_conditions",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_004",
+      "category": "上个月",
+      "description": "上个月的采购需求",
+      "user_input": "上个月有哪些采购需求没有执行",
+      "expected_intent": "procurement/query_with_conditions",
+      "expected_slots": {
+        "time_range": {
+          "label": "上个月"
+        },
+        "execution_status": "未执行"
+      },
+      "expected_connector_params": {
+        "date_from_pattern": "2026-05-01",
+        "date_to_pattern": "2026-05-31",
+        "execution_status": "未执行"
+      },
+      "expected_action": "analytics/find_purchase_requests_with_conditions",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_005",
+      "category": "物料分类",
+      "description": "IT设备采购需求",
+      "user_input": "帮我查一下IT设备的采购需求有哪些",
+      "expected_intent": "procurement/query_with_conditions",
+      "expected_slots": {
+        "material_category": "IT设备"
+      },
+      "expected_connector_params": {
+        "material_category": "IT设备"
+      },
+      "expected_action": "analytics/find_purchase_requests_with_conditions",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_006",
+      "category": "多条件组合",
+      "description": "复杂条件查询",
+      "user_input": "上周研发部申请的办公用品采购需求有哪些，帮我处理一下",
+      "expected_intent": "procurement/query_with_conditions",
+      "expected_slots": {
+        "time_range": {
+          "label": "上周"
+        },
+        "department": "研发部",
+        "material_category": "办公用品"
+      },
+      "expected_connector_params": {
+        "date_from": "2026-05-26",
+        "date_to": "2026-06-01",
+        "apply_dep": "研发部",
+        "material_category": "办公用品"
+      },
+      "expected_action": "analytics/find_purchase_requests_with_conditions",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_007",
+      "category": "无时间条件",
+      "description": "所有未执行采购需求",
+      "user_input": "帮我查一下目前还有哪些采购需求没有执行",
+      "expected_intent": "procurement/query_unexecuted_pr",
+      "expected_slots": {
+        "execution_status": "未执行"
+      },
+      "expected_connector_params": {},
+      "expected_action": "analytics/find_unexecuted_purchase_requests",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_008",
+      "category": "创建询价",
+      "description": "基于采购需求创建询价单",
+      "user_input": "基于采购需求PR-20260528-001创建询价单",
+      "expected_intent": "procurement/create_inquiry",
+      "expected_slots": {
+        "pr_id": "PR20260528001"
+      },
+      "expected_connector_params": {
+        "pr_id": "PR20260528001"
+      },
+      "expected_action": "procurement/create_inquiry_from_pr",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_009",
+      "category": "比价分析",
+      "description": "开始比价",
+      "user_input": "开始比价，看看哪家供应商的价格最优",
+      "expected_intent": "procurement/compare_quotations",
+      "expected_slots": {},
+      "expected_connector_params": {},
+      "expected_action": "analytics/generate_price_comparison",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    },
+    {
+      "case_id": "case_010",
+      "category": "订单执行查询",
+      "description": "查询采购订单执行情况",
+      "user_input": "查一下PO-20260528-001的执行情况",
+      "expected_intent": "procurement/query_order_status",
+      "expected_slots": {
+        "po_id": "PO20260528001"
+      },
+      "expected_connector_params": {
+        "po_id": "PO20260528001"
+      },
+      "expected_action": "analytics/get_purchase_order_execution_status",
+      "test_type": "intent_recognition",
+      "status": "ready"
+    }
+  ],
+  "slot_extraction_tests": [
+    {
+      "test_id": "slot_001",
+      "description": "时间范围提取 - 上周",
+      "input": "上周的采购需求",
+      "expected_time_range": {
+        "label": "上周",
+        "date_from": "2026-05-26",
+        "date_to": "2026-06-01"
+      }
+    },
+    {
+      "test_id": "slot_002",
+      "description": "时间范围提取 - 本月",
+      "input": "本月的生产采购",
+      "expected_time_range": {
+        "label": "本月",
+        "date_from": "2026-06-01",
+        "date_to": "2026-06-30"
+      }
+    },
+    {
+      "test_id": "slot_003",
+      "description": "时间范围提取 - 上个月",
+      "input": "上个月各部门的需求",
+      "expected_time_range": {
+        "label": "上个月",
+        "date_from": "2026-05-01",
+        "date_to": "2026-05-31"
+      }
+    },
+    {
+      "test_id": "slot_004",
+      "description": "采购类型提取 - NB",
+      "input": "采购类型为NB的采购需求",
+      "expected_pr_type": "NB"
+    },
+    {
+      "test_id": "slot_005",
+      "description": "采购类型提取 - 生产采购",
+      "input": "生产采购的物料需求",
+      "expected_pr_type": "生产采购"
+    },
+    {
+      "test_id": "slot_006",
+      "description": "物料分类提取 - 办公用品",
+      "input": "办公用品的采购需求",
+      "expected_material_category": "办公用品"
+    },
+    {
+      "test_id": "slot_007",
+      "description": "物料分类提取 - IT设备",
+      "input": "IT设备包括笔记本电脑和服务器",
+      "expected_material_category": "IT设备"
+    },
+    {
+      "test_id": "slot_008",
+      "description": "部门提取 - 研发部",
+      "input": "研发部申请的采购",
+      "expected_department": "研发部"
+    },
+    {
+      "test_id": "slot_009",
+      "description": "执行状态提取 - 未执行",
+      "input": "未执行的采购需求",
+      "expected_execution_status": "未执行"
+    },
+    {
+      "test_id": "slot_010",
+      "description": "综合提取 - 多条件",
+      "input": "上周采购类型为办公用品的采购需求",
+      "expected_slots": {
+        "time_range": {"label": "上周"},
+        "pr_type": "NB",
+        "material_category": "办公用品"
+      }
+    }
+  ],
+  "integration_tests": [
+    {
+      "test_id": "integration_001",
+      "description": "完整流程测试 - 从用户输入到查询结果",
+      "user_input": "先处理上周采购类型为办公用品的采购需求",
+      "steps": [
+        {
+          "step": 1,
+          "component": "Step1Recognizer",
+          "expected_output": {
+            "intent": "procurement/query_with_conditions",
+            "extracted_slots": {
+              "time_range": {"label": "上周"},
+              "pr_type": "NB",
+              "material_category": "办公用品"
+            }
+          }
+        },
+        {
+          "step": 2,
+          "component": "Step2OntologyResolver",
+          "expected_output": {
+            "object_type": "purchase_requests",
+            "object_label": "采购需求"
+          }
+        },
+        {
+          "step": 3,
+          "component": "Step3TaskPlanner",
+          "expected_output": {
+            "planned_actions": [
+              {
+                "action_id": "analytics/find_purchase_requests_with_conditions"
+              }
+            ],
+            "query_conditions": [
+              {"field": "delivery_date", "operator": "BETWEEN"},
+              {"field": "pr_type", "operator": "=", "value": "NB"},
+              {"field": "material_category", "operator": "=", "value": "办公用品"}
+            ]
+          }
+        },
+        {
+          "step": 4,
+          "component": "ProcurementConnector",
+          "expected_output": {
+            "success": true,
+            "data.total": "> 0"
+          }
+        }
+      ]
+    }
+  ]
+}

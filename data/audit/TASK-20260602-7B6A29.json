@@ -1,0 +1,27 @@
+{
+  "taskId": "TASK-20260602-7B6A29",
+  "userInput": "上周未审批的采购申请列出来",
+  "intent": "procurement/approve_pr",
+  "intentLabel": "审批采购需求",
+  "ontologyVersion": "0.1.2",
+  "matchedObjects": [
+    "purchase_requests"
+  ],
+  "matchedActions": [
+    "purchase_request/approve"
+  ],
+  "connectors": [
+    "ProcurementConnector"
+  ],
+  "confirmationRequired": true,
+  "finalStatus": "completed",
+  "totalDurationMs": 15393.355131149292,
+  "stepDurations": {
+    "1": 10335.082292556763,
+    "2": 0.15282630920410156,
+    "3": 2923.4960079193115,
+    "4": 0.6439685821533203,
+    "5": 2133.9800357818604
+  },
+  "createdAt": "2026-06-02T23:40:30.092861"
+}

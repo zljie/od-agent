@@ -1,0 +1,24 @@
+{
+  "purchase_inquiries": [
+    {
+      "inquiry_id": "RFQ-20260528-001",
+      "inquiry_item": "0001",
+      "inquiry_type": "公开询价",
+      "material_id": "SKU001",
+      "material_d": "联想ThinkPad T490 笔记本电脑",
+      "delivery_date": "2026-06-15",
+      "company_id": "C001",
+      "factory_id": "F001",
+      "quantity": "10",
+      "unit_id": "EA",
+      "purgroup_id": "PG01",
+      "purgroup_d": "IT设备采购组",
+      "inquiry_start_date": "2026-05-28",
+      "inquiry_end_date": "2026-06-05",
+      "pr_id": "PR-20260528-001",
+      "pr_item": "0001",
+      "status": "报价中",
+      "delete_flag": "0"
+    }
+  ]
+}

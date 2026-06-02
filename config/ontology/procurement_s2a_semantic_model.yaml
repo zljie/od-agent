@@ -1,0 +1,1398 @@
+version: "0.1.2"
+semantic_model:
+- name: procurement_s2a_assistant
+  description: 采购助手 Source-to-Award 业务对象图谱，覆盖采购需求、询价、报价、比价、采购订单与收货执行闭环。
+  ai_context:
+    instructions: 默认口径：1) 删除标记 delete_flag=0 或为空的数据视为有效；2) 采购需求执行状态以采购需求行项目是否生成采购订单行项目判断；3) 有效报价需关联询价单，且价格有效期覆盖当前业务日期；4) 比价默认按同一物料、同一询价单下的供应商报价净价从低到高排序；5)
+      采购订单执行进度以订单行项目的发货状态、已完成标识以及收货历史数量进行判断。
+    synonyms:
+    - 采购助手
+    - 采购需求
+    - 询价
+    - 报价
+    - 比价
+    - 定标
+    - 采购订单
+    - S2A
+    - Source-to-Award
+    examples:
+    - 帮我查还有哪些采购需求没有执行
+    - 根据采购需求发起询价
+    - 某个询价单现在有几家供应商报价了
+    - 开始比价并推荐供应商
+    - 根据审批通过的报价创建采购订单
+    - 查询采购订单执行情况
+  datasets:
+  - name: purchase_requests
+    source: erp.procurement.purchase_request
+    primary_key:
+    - pr_id
+    - pr_item
+    description: 采购需求行项目，表示业务部门提出的物料/服务采购需求。
+    ai_context:
+      synonyms:
+      - 采购需求
+      - 请购单
+      - PR
+      - Purchase Request
+    fields:
+    - name: pr_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.pr_id
+      description: 采购需求编号
+    - name: pr_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.pr_item
+      description: 采购需求行项目
+    - name: pr_type
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.pr_type
+      description: 采购类型
+    - name: material_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.material_id
+      description: 物料编码
+    - name: material_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.material_d
+      description: 物料描述
+    - name: delivery_date
+      type: Date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.delivery_date
+      description: 需求日期
+      dimension:
+        is_time: true
+    - name: company_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.company_id
+      description: 公司
+    - name: factory_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.factory_id
+      description: 工厂
+    - name: quantity
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.quantity
+      description: 需求数量
+    - name: unit_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.unit_id
+      description: 单位
+    - name: claimer
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.claimer
+      description: 申请者
+    - name: apply_dep
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.apply_dep
+      description: 申请部门
+    - name: appro_whe
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.appro_whe
+      description: 是否需要审批
+    - name: flow_status
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.flow_status
+      description: 审批状态
+    - name: status
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.status
+      description: 单据状态
+    - name: delete_flag
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.delete_flag
+      description: 删除标记
+  - name: purchase_inquiries
+    source: srm.rfq.purchase_inquiry
+    primary_key:
+    - inquiry_id
+    - inquiry_item
+    description: 询价单行项目，表示对采购需求发起的询价请求。
+    ai_context:
+      synonyms:
+      - 询价单
+      - RFQ
+      - Inquiry
+      - 询源
+    fields:
+    - name: inquiry_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.inquiry_id
+      description: 询价单号
+    - name: inquiry_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.inquiry_item
+      description: 询价单行项目
+    - name: inquiry_type
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.inquiry_type
+      description: 询价类型
+    - name: material_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.material_id
+      description: 物料编码
+    - name: material_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.material_d
+      description: 物料描述
+    - name: delivery_date
+      type: Date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.delivery_date
+      description: 交货日期
+      dimension:
+        is_time: true
+    - name: company_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.company_id
+      description: 公司
+    - name: factory_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.factory_id
+      description: 工厂
+    - name: quantity
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.quantity
+      description: 数量
+    - name: unit_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.unit_id
+      description: 单位
+    - name: purgroup_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.purgroup_id
+      description: 采购组
+    - name: purgroup_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.purgroup_d
+      description: 采购组描述
+    - name: inquiry_start_date
+      type: Date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.inquiry_start_date
+      description: 报价开始日期
+      dimension:
+        is_time: true
+    - name: inquiry_end_date
+      type: Date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.inquiry_end_date
+      description: 报价截止日期
+      dimension:
+        is_time: true
+    - name: pr_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.pr_id
+      description: 采购需求编号
+    - name: pr_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.pr_item
+      description: 采购需求行项目
+    - name: status
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.status
+      description: 单据状态
+    - name: delete_flag
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.delete_flag
+      description: 删除标记
+  - name: purchase_quotations
+    source: srm.rfq.purchase_quotation
+    primary_key:
+    - quotation_id
+    - quotation_item
+    description: 报价单行项目，表示供应商对询价单提交的价格、交期和有效期。
+    ai_context:
+      synonyms:
+      - 报价单
+      - 供应商报价
+      - Quotation
+      - Quote
+    fields:
+    - name: quotation_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.quotation_id
+      description: 报价单号
+    - name: quotation_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.quotation_item
+      description: 报价单行项目
+    - name: material_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.material_id
+      description: 物料编码
+    - name: material_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.material_d
+      description: 物料描述
+    - name: company_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.company_id
+      description: 公司
+    - name: factory_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.factory_id
+      description: 工厂
+    - name: net_price
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.net_price
+      description: 净价
+    - name: price_unit
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.price_unit
+      description: 价格单位
+    - name: unit_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.unit_id
+      description: 采购单位
+    - name: vendor_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.vendor_id
+      description: 供应商
+    - name: vendor_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.vendor_d
+      description: 供应商描述
+    - name: purgroup_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.purgroup_id
+      description: 采购组
+    - name: purgroup_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.purgroup_d
+      description: 采购组描述
+    - name: price_start_date
+      type: Date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.price_start_date
+      description: 价格生效期起
+      dimension:
+        is_time: true
+    - name: price_end_date
+      type: Date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.price_end_date
+      description: 价格生效期止
+      dimension:
+        is_time: true
+    - name: inquiry_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.inquiry_id
+      description: 询价单号
+    - name: inquiry_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.inquiry_item
+      description: 询价单行项目
+    - name: status
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.status
+      description: 单据状态
+    - name: delete_flag
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_quotations.delete_flag
+      description: 删除标记
+  - name: purchase_order_heads
+    source: erp.procurement.pruchase_order_head
+    primary_key:
+    - po_id
+    description: 采购订单抬头，表示订单级供应商、公司、金额和审批状态。
+    ai_context:
+      synonyms:
+      - 采购订单抬头
+      - PO Header
+      - 采购凭证
+    fields:
+    - name: po_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.po_id
+      description: 采购凭证
+    - name: company_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.company_id
+      description: 公司代码
+    - name: company_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.company_d
+      description: 公司代码描述
+    - name: potype_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.potype_id
+      description: 订单类型
+    - name: vendor_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.vendor_id
+      description: 供应商
+    - name: vendor_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.vendor_d
+      description: 供应商描述
+    - name: purgroup_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.purgroup_id
+      description: 采购组
+    - name: purgroup_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.purgroup_d
+      description: 采购组描述
+    - name: contract_amount
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.contract_amount
+      description: 订单总金额
+    - name: currency
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.currency
+      description: 币种
+    - name: appro_whe
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.appro_whe
+      description: 是否审批
+    - name: flow_status
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.flow_status
+      description: 审批状态
+    - name: status
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.status
+      description: 单据状态
+    - name: delete_flag
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_heads.delete_flag
+      description: 删除标记
+  - name: purchase_order_items
+    source: erp.procurement.pruchase_order_item
+    primary_key:
+    - po_id
+    - po_item
+    description: 采购订单行项目，连接采购需求、报价单与实际采购执行。
+    ai_context:
+      synonyms:
+      - 采购订单行项目
+      - PO Item
+      - 订单明细
+    fields:
+    - name: po_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.po_id
+      description: 采购凭证
+    - name: po_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.po_item
+      description: 采购凭证行项目
+    - name: delete_flag
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.delete_flag
+      description: 删除标记
+    - name: material_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.material_id
+      description: 物料编码
+    - name: material_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.material_d
+      description: 物料描述
+    - name: factory_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.factory_id
+      description: 工厂
+    - name: location_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.location_id
+      description: 库存地点
+    - name: quantity
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.quantity
+      description: 需求数量
+    - name: unit_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.unit_id
+      description: 单位
+    - name: net_price
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.net_price
+      description: 单价未税
+    - name: tax_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.tax_id
+      description: 税率
+    - name: price_unit
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.price_unit
+      description: 价格单位
+    - name: delivery_date
+      type: Date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.delivery_date
+      description: 交货日期
+      dimension:
+        is_time: true
+    - name: pr_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.pr_id
+      description: 采购需求编号
+    - name: pr_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.pr_item
+      description: 采购需求行项目
+    - name: inbound_state
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.inbound_state
+      description: 发货状态
+    - name: returns
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.returns
+      description: 退货标识
+    - name: free
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.free
+      description: 免费标识
+    - name: delivery_complete
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.delivery_complete
+      description: 已完成标识
+    - name: quotation_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.quotation_id
+      description: 报价单号
+    - name: quotation_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_items.quotation_item
+      description: 报价单行项目
+  - name: purchase_order_receipt_history
+    source: erp.procurement.pruchase_order_history
+    primary_key:
+    - gr_id
+    - gr_item
+    - year_id
+    description: 采购订单收货历史，表示采购订单行项目的收货/退货等物料凭证记录。
+    ai_context:
+      synonyms:
+      - 收货历史
+      - GR History
+      - 入库历史
+      - 物料凭证
+    fields:
+    - name: gr_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.gr_id
+      description: 物料凭证
+    - name: gr_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.gr_item
+      description: 物料凭证行项目
+    - name: year_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.year_id
+      description: 年度
+    - name: gr_date
+      type: Date
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.gr_date
+      description: 过账日期
+      dimension:
+        is_time: true
+    - name: business_type
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.business_type
+      description: 业务类型
+    - name: movt_type
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.movt_type
+      description: 移动类型
+    - name: material_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.material_id
+      description: 物料编码
+    - name: material_d
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.material_d
+      description: 物料描述
+    - name: quantity
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.quantity
+      description: 数量
+    - name: unit_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.unit_id
+      description: 单位
+    - name: net_price
+      type: Number
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.net_price
+      description: 本位币金额
+    - name: currency
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.currency
+      description: 币种
+    - name: po_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.po_id
+      description: 采购凭证
+    - name: po_item
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.po_item
+      description: 采购凭证行项目
+    - name: dc
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_order_receipt_history.dc
+      description: 借贷标记
+  relationships:
+  - name: inquiry_generated_from_purchase_request
+    from: purchase_inquiries
+    to: purchase_requests
+    from_columns:
+    - pr_id
+    - pr_item
+    to_columns:
+    - pr_id
+    - pr_item
+    ai_context:
+      description: 询价单行项目来源于采购需求行项目
+  - name: quotation_submitted_for_inquiry
+    from: purchase_quotations
+    to: purchase_inquiries
+    from_columns:
+    - inquiry_id
+    - inquiry_item
+    to_columns:
+    - inquiry_id
+    - inquiry_item
+    ai_context:
+      description: 报价单行项目响应某个询价单行项目
+  - name: purchase_order_item_belongs_to_head
+    from: purchase_order_items
+    to: purchase_order_heads
+    from_columns:
+    - po_id
+    to_columns:
+    - po_id
+    ai_context:
+      description: 采购订单行项目属于采购订单抬头
+  - name: purchase_order_item_fulfills_purchase_request
+    from: purchase_order_items
+    to: purchase_requests
+    from_columns:
+    - pr_id
+    - pr_item
+    to_columns:
+    - pr_id
+    - pr_item
+    ai_context:
+      description: 采购订单行项目执行某个采购需求行项目
+  - name: purchase_order_item_uses_quotation
+    from: purchase_order_items
+    to: purchase_quotations
+    from_columns:
+    - quotation_id
+    - quotation_item
+    to_columns:
+    - quotation_id
+    - quotation_item
+    ai_context:
+      description: 采购订单行项目引用审批通过的报价行项目
+  - name: receipt_history_records_purchase_order_item
+    from: purchase_order_receipt_history
+    to: purchase_order_items
+    from_columns:
+    - po_id
+    - po_item
+    to_columns:
+    - po_id
+    - po_item
+    ai_context:
+      description: 收货历史记录采购订单行项目的入库/退货执行
+  metrics:
+  - name: purchase_request_count
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: COUNT(*)
+    description: 采购需求行项目数量
+  - name: approved_purchase_request_count
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(CASE WHEN purchase_requests.flow_status IN ('S0','APPROVED') THEN 1 ELSE 0 END)
+    description: 已审批采购需求数量
+  - name: unexecuted_purchase_request_count
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(CASE WHEN purchase_order_items.po_id IS NULL THEN 1 ELSE 0 END)
+    description: 未生成采购订单的采购需求数量
+  - name: purchase_request_execution_rate
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(CASE WHEN purchase_order_items.po_id IS NOT NULL THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)
+    description: 采购需求执行率
+  - name: inquiry_count
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: COUNT(DISTINCT purchase_inquiries.inquiry_id)
+    description: 询价单数量
+  - name: quotation_count
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: COUNT(DISTINCT purchase_quotations.quotation_id)
+    description: 报价单数量
+  - name: quotation_response_rate
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: COUNT(DISTINCT purchase_quotations.quotation_id) / NULLIF(COUNT(DISTINCT purchase_inquiries.inquiry_id),
+          0)
+    description: 报价回收率
+  - name: avg_quotation_net_price
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: AVG(purchase_quotations.net_price)
+    description: 平均报价净价
+  - name: lowest_quotation_price
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: MIN(purchase_quotations.net_price)
+    description: 最低报价净价
+  - name: purchase_order_amount
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(purchase_order_heads.contract_amount)
+    description: 采购订单总金额
+  - name: received_quantity
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: SUM(purchase_order_receipt_history.quantity)
+    description: 累计收货数量
+  behavior:
+    namespace: procurement_s2a
+    behavior_layer_version: '0.1'
+    actions:
+    - id: purchase_requests/get_by_id
+      name: 按主键查询purchase_requests
+      description: 根据主键读取 purchase_requests 单条记录。
+      kind: query
+      operation: get_by_id
+      entity_name: purchase_requests
+      io_schema:
+        input:
+          primary_key:
+          - pr_id
+          - pr_item
+        output:
+          record: purchase_requests
+      labels:
+      - dataset_query
+    - id: purchase_requests/list
+      name: 列表查询purchase_requests
+      description: 按过滤条件分页查询 purchase_requests。
+      kind: query
+      operation: list
+      entity_name: purchase_requests
+      io_schema:
+        input:
+          filters: object
+          limit: integer
+          offset: integer
+        output:
+          records: purchase_requests
+      labels:
+      - dataset_query
+    - id: purchase_inquiries/get_by_id
+      name: 按主键查询purchase_inquiries
+      description: 根据主键读取 purchase_inquiries 单条记录。
+      kind: query
+      operation: get_by_id
+      entity_name: purchase_inquiries
+      io_schema:
+        input:
+          primary_key:
+          - inquiry_id
+          - inquiry_item
+        output:
+          record: purchase_inquiries
+      labels:
+      - dataset_query
+    - id: purchase_inquiries/list
+      name: 列表查询purchase_inquiries
+      description: 按过滤条件分页查询 purchase_inquiries。
+      kind: query
+      operation: list
+      entity_name: purchase_inquiries
+      io_schema:
+        input:
+          filters: object
+          limit: integer
+          offset: integer
+        output:
+          records: purchase_inquiries
+      labels:
+      - dataset_query
+    - id: purchase_quotations/get_by_id
+      name: 按主键查询purchase_quotations
+      description: 根据主键读取 purchase_quotations 单条记录。
+      kind: query
+      operation: get_by_id
+      entity_name: purchase_quotations
+      io_schema:
+        input:
+          primary_key:
+          - quotation_id
+          - quotation_item
+        output:
+          record: purchase_quotations
+      labels:
+      - dataset_query
+    - id: purchase_quotations/list
+      name: 列表查询purchase_quotations
+      description: 按过滤条件分页查询 purchase_quotations。
+      kind: query
+      operation: list
+      entity_name: purchase_quotations
+      io_schema:
+        input:
+          filters: object
+          limit: integer
+          offset: integer
+        output:
+          records: purchase_quotations
+      labels:
+      - dataset_query
+    - id: purchase_order_heads/get_by_id
+      name: 按主键查询purchase_order_heads
+      description: 根据主键读取 purchase_order_heads 单条记录。
+      kind: query
+      operation: get_by_id
+      entity_name: purchase_order_heads
+      io_schema:
+        input:
+          primary_key:
+          - po_id
+        output:
+          record: purchase_order_heads
+      labels:
+      - dataset_query
+    - id: purchase_order_heads/list
+      name: 列表查询purchase_order_heads
+      description: 按过滤条件分页查询 purchase_order_heads。
+      kind: query
+      operation: list
+      entity_name: purchase_order_heads
+      io_schema:
+        input:
+          filters: object
+          limit: integer
+          offset: integer
+        output:
+          records: purchase_order_heads
+      labels:
+      - dataset_query
+    - id: purchase_order_items/get_by_id
+      name: 按主键查询purchase_order_items
+      description: 根据主键读取 purchase_order_items 单条记录。
+      kind: query
+      operation: get_by_id
+      entity_name: purchase_order_items
+      io_schema:
+        input:
+          primary_key:
+          - po_id
+          - po_item
+        output:
+          record: purchase_order_items
+      labels:
+      - dataset_query
+    - id: purchase_order_items/list
+      name: 列表查询purchase_order_items
+      description: 按过滤条件分页查询 purchase_order_items。
+      kind: query
+      operation: list
+      entity_name: purchase_order_items
+      io_schema:
+        input:
+          filters: object
+          limit: integer
+          offset: integer
+        output:
+          records: purchase_order_items
+      labels:
+      - dataset_query
+    - id: purchase_order_receipt_history/get_by_id
+      name: 按主键查询purchase_order_receipt_history
+      description: 根据主键读取 purchase_order_receipt_history 单条记录。
+      kind: query
+      operation: get_by_id
+      entity_name: purchase_order_receipt_history
+      io_schema:
+        input:
+          primary_key:
+          - gr_id
+          - gr_item
+          - year_id
+        output:
+          record: purchase_order_receipt_history
+      labels:
+      - dataset_query
+    - id: purchase_order_receipt_history/list
+      name: 列表查询purchase_order_receipt_history
+      description: 按过滤条件分页查询 purchase_order_receipt_history。
+      kind: query
+      operation: list
+      entity_name: purchase_order_receipt_history
+      io_schema:
+        input:
+          filters: object
+          limit: integer
+          offset: integer
+        output:
+          records: purchase_order_receipt_history
+      labels:
+      - dataset_query
+    - id: analytics/find_unexecuted_purchase_requests
+      name: 查询未执行采购需求
+      description: 识别已审批但尚未生成采购订单的采购需求行项目。
+      kind: query
+      operation: find_unexecuted_purchase_requests
+      entity_name: purchase_requests
+      io_schema:
+        input:
+          company_id: string
+          factory_id: string
+          apply_dep: string
+          as_of_date: date
+        output:
+          purchase_requests: array
+          risk_summary: object
+      synonyms:
+      - 采购需求未执行
+      - 未下单需求
+      labels:
+      - business_action
+    - id: procurement/create_inquiry_from_pr
+      name: 根据采购需求创建询价单
+      description: 基于采购需求行项目创建询价单，并继承物料、数量、交期等信息。
+      kind: command
+      operation: create_inquiry_from_pr
+      entity_name: purchase_inquiries
+      io_schema:
+        input:
+          pr_id: string
+          pr_item: string
+          supplier_scope: array
+          deadline: date
+        output:
+          inquiry_id: string
+          status: string
+      synonyms:
+      - 发起询价
+      - 创建询价
+      labels:
+      - business_action
+    - id: rfq/collect_quotations
+      name: 回收报价
+      description: 汇总某个询价单下供应商报价进度和报价明细。
+      kind: query
+      operation: collect_quotations
+      entity_name: purchase_quotations
+      io_schema:
+        input:
+          inquiry_id: string
+        output:
+          quotation_list: array
+          response_summary: object
+      synonyms:
+      - 报价回收
+      - 报价跟踪
+      labels:
+      - business_action
+    - id: analytics/generate_price_comparison
+      name: 生成比价分析
+      description: 按同一询价单和物料维度，对多家供应商报价进行比价并给出推荐。
+      kind: query
+      operation: generate_price_comparison
+      entity_name: purchase_quotations
+      io_schema:
+        input:
+          inquiry_id: string
+          material_id: string
+          min_supplier_count: integer
+        output:
+          ranked_quotations: array
+          recommended_quotation_id: string
+          reason: string
+      synonyms:
+      - 比价
+      - 自动比价
+      - 供应商推荐
+      labels:
+      - business_action
+    - id: procurement/submit_award_approval
+      name: 提交中标报价审批
+      description: 将推荐报价提交审批流程，审批通过后价格生效。
+      kind: command
+      operation: submit_award_approval
+      entity_name: purchase_quotations
+      io_schema:
+        input:
+          quotation_id: string
+          quotation_item: string
+          reason: string
+        output:
+          workflow_id: string
+          approval_status: string
+      synonyms:
+      - 定标审批
+      - 中标审批
+      labels:
+      - business_action
+    - id: procurement/create_purchase_order_from_pr_and_quotation
+      name: 创建采购订单
+      description: 基于审批通过的采购需求和有效报价创建采购订单。
+      kind: command
+      operation: create_purchase_order_from_pr_and_quotation
+      entity_name: purchase_order_heads
+      io_schema:
+        input:
+          pr_id: string
+          pr_item: string
+          quotation_id: string
+          quotation_item: string
+        output:
+          po_id: string
+          status: string
+      synonyms:
+      - 创建采购订单
+      - 生成PO
+      labels:
+      - business_action
+    - id: analytics/get_purchase_order_execution_status
+      name: 查询采购订单执行情况
+      description: 查询采购订单审批、发货、收货、发票等执行状态。
+      kind: query
+      operation: get_purchase_order_execution_status
+      entity_name: purchase_order_items
+      io_schema:
+        input:
+          po_id: string
+        output:
+          approval_status: string
+          shipment_status: string
+          receipt_status: string
+          invoice_status: string
+      synonyms:
+      - 订单执行查询
+      - 采购订单状态
+      labels:
+      - business_action
+    rules:
+    - id: rule/pr_approved_before_inquiry
+      name: 采购需求审批后才允许询价
+      description: 未审批或被驳回的采购需求不得生成询价单。
+      severity: error
+      when:
+        action: procurement/create_inquiry_from_pr
+      constraint:
+        all_of:
+        - field: purchase_requests.appro_whe
+          operator: '='
+          value: Y
+        - field: purchase_requests.flow_status
+          operator: IN
+          value:
+          - S0
+          - APPROVED
+        - field: purchase_requests.delete_flag
+          operator: '='
+          value: '0'
+      message: 采购需求未审批通过或已删除，不能发起询价。
+      remediation: 请先完成采购需求审批，或重新选择有效采购需求。
+      labels:
+      - governance
+      - pr
+    - id: rule/quotation_not_editable_after_po
+      name: 已生成采购订单的报价不可撤销修改
+      severity: error
+      when:
+        entity: purchase_quotations
+        operation: update_or_cancel
+      constraint:
+        not_exists:
+          dataset: purchase_order_items
+          where: purchase_order_items.quotation_id = purchase_quotations.quotation_id AND purchase_order_items.quotation_item
+            = purchase_quotations.quotation_item
+      message: 该报价已被采购订单引用，不允许撤销或修改。
+      remediation: 如确需调整，请走采购订单变更流程。
+      labels:
+      - quotation
+      - po
+    - id: rule/valid_price_comparison_requires_three_suppliers
+      name: 有效比价至少需要三家供应商报价
+      severity: warn
+      when:
+        action: analytics/generate_price_comparison
+      constraint:
+        metric: quotation_supplier_count
+        operator: '>='
+        value: 3
+        group_by:
+        - inquiry_id
+        - material_id
+      message: 参与报价供应商不足三家，比价结果仅供参考。
+      remediation: 继续邀请供应商报价，或由采购负责人确认例外。
+      labels:
+      - price_comparison
+    - id: rule/po_requires_effective_quotation
+      name: 创建采购订单必须引用有效报价
+      severity: error
+      when:
+        action: procurement/create_purchase_order_from_pr_and_quotation
+      constraint:
+        all_of:
+        - field: purchase_quotations.status
+          operator: IN
+          value:
+          - APPROVED
+          - EFFECTIVE
+          - S0
+        - field: purchase_quotations.price_start_date
+          operator: <=
+          value: business_date
+        - field: purchase_quotations.price_end_date
+          operator: '>='
+          value: business_date
+      message: 未匹配到有效报价，不能自动创建采购订单。
+      remediation: 请先完成报价审批，或重新选择价格有效期内的报价。
+      labels:
+      - po
+      - quotation
+    - id: rule/po_quantity_not_less_than_received
+      name: 采购订单数量不得小于已收货数量
+      severity: error
+      when:
+        entity: purchase_order_items
+        operation: update_quantity
+      constraint:
+        field: purchase_order_items.quantity
+        operator: '>='
+        value: SUM(purchase_order_receipt_history.quantity)
+      message: 修改后的采购订单数量不能小于累计已入库数量。
+      remediation: 请调整为不小于已收货数量，或先处理退货/冲销。
+      labels:
+      - po
+      - receipt
+    - id: rule/deleted_records_excluded_by_default
+      name: 默认排除删除标记记录
+      severity: info
+      when:
+        query: '*'
+      constraint:
+        default_filter: delete_flag = 0 OR delete_flag IS NULL
+      message: 默认分析口径会排除已删除业务单据。
+      remediation: 如需审计删除数据，请显式指定包含删除标记。
+      labels:
+      - default_scope

@@ -1,0 +1,27 @@
+{
+  "taskId": "TASK-20260602-F60893",
+  "userInput": "先处理上周采购类型为办公用品的采购需求",
+  "intent": "procurement/query_unexecuted_pr",
+  "intentLabel": "查询未执行采购需求",
+  "ontologyVersion": "0.1.2",
+  "matchedObjects": [
+    "purchase_requests"
+  ],
+  "matchedActions": [
+    "purchase_requests/list"
+  ],
+  "connectors": [
+    "ProcurementConnector"
+  ],
+  "confirmationRequired": [],
+  "finalStatus": "completed",
+  "totalDurationMs": 7793.191909790039,
+  "stepDurations": {
+    "1": 4141.881704330444,
+    "2": 0.24008750915527344,
+    "3": 2424.4589805603027,
+    "4": 0.7750988006591797,
+    "5": 1225.8360385894775
+  },
+  "createdAt": "2026-06-02T23:55:50.327690"
+}

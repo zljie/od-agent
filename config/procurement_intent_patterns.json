@@ -1,0 +1,316 @@
+{
+  "version": "1.0.0",
+  "description": "采购场景意图模式配置 - 支持带条件的查询意图",
+  "intent_patterns": [
+    {
+      "id": "procurement/query_with_conditions",
+      "name": "带条件的采购需求查询",
+      "description": "查询满足特定条件的采购需求，支持时间范围、物料分类、采购类型、部门等过滤",
+      "intent_keywords": [
+        "采购需求", "采购计划", "请购", "PR",
+        "物料需求", "需求查询", "查采购"
+      ],
+      "trigger_contexts": [
+        {
+          "pattern": ".*",
+          "required_slots": [],
+          "optional_slots": ["time_range", "pr_type", "material_category", "department", "execution_status"]
+        }
+      ],
+      "slot_extractors": {
+        "time_range": {
+          "type": "temporal",
+          "description": "时间范围，如上周、本月、上个月等",
+          "output_format": "date_range"
+        },
+        "pr_type": {
+          "type": "enum",
+          "source": "ontology.pr_type",
+          "description": "采购类型",
+          "values": ["NB", "标准采购", "紧急采购", "生产采购", "项目采购", "研发采购", "MRO采购"]
+        },
+        "material_category": {
+          "type": "enum",
+          "source": "ontology.material_category",
+          "description": "物料分类",
+          "values": ["办公用品", "生产物料", "IT设备", "工程物资", "办公家具", "劳保用品", "备品备件", "包装材料"]
+        },
+        "department": {
+          "type": "reference",
+          "source": "ontology.apply_dep",
+          "description": "申请部门",
+          "values": ["研发部", "市场部", "销售部", "采购部", "财务部", "人事部", "生产部", "质量管理部", "物流部", "行政部", "信息技术部", "仓储部"]
+        },
+        "execution_status": {
+          "type": "enum",
+          "description": "执行状态",
+          "values": ["未执行", "已执行", "待审批", "已审批", "已驳回", "已取消"]
+        }
+      },
+      "action": "analytics/find_purchase_requests_with_conditions",
+      "response_template": "查询到 {total} 条{total_label}采购需求，{summary}",
+      "examples": [
+        {
+          "input": "先处理上周采购类型为办公用品的采购需求",
+          "extracted_slots": {
+            "time_range": {"label": "上周"},
+            "pr_type": "NB",
+            "material_category": "办公用品"
+          },
+          "connector_params": {
+            "date_from": "上一周周一",
+            "date_to": "上一周周日",
+            "pr_type": "NB",
+            "material_category": "办公用品"
+          }
+        },
+        {
+          "input": "查一下本月生产采购的物料需求",
+          "extracted_slots": {
+            "time_range": {"label": "本月"},
+            "pr_type": "生产采购"
+          },
+          "connector_params": {
+            "date_from": "本月1日",
+            "date_to": "本月最后一日",
+            "pr_type": "生产采购"
+          }
+        },
+        {
+          "input": "看看研发部上周有哪些未执行的采购计划",
+          "extracted_slots": {
+            "time_range": {"label": "上周"},
+            "department": "研发部",
+            "execution_status": "未执行"
+          },
+          "connector_params": {
+            "date_from": "上一周周一",
+            "date_to": "上一周周日",
+            "apply_dep": "研发部",
+            "execution_status": "未执行"
+          }
+        }
+      ]
+    },
+    {
+      "id": "procurement/query_inquiry",
+      "name": "询价单查询",
+      "description": "查询询价单列表或详情",
+      "intent_keywords": [
+        "询价单", "RFQ", "询价进度", "询价状态",
+        "发起了哪些询价", "查询价"
+      ],
+      "trigger_contexts": [
+        {
+          "pattern": ".*",
+          "required_slots": [],
+          "optional_slots": ["time_range", "inquiry_id", "material_category"]
+        }
+      ],
+      "slot_extractors": {
+        "time_range": {
+          "type": "temporal",
+          "description": "时间范围"
+        },
+        "inquiry_id": {
+          "type": "regex",
+          "pattern": "(?:RFQ|INQ)[_-]?\\d{8}[_-]?\\d{3,}",
+          "description": "询价单号"
+        }
+      },
+      "action": "purchase_inquiries/list",
+      "response_template": "查询到 {total} 条询价单"
+    },
+    {
+      "id": "procurement/query_quotation",
+      "name": "报价单查询",
+      "description": "查询报价单列表或详情",
+      "intent_keywords": [
+        "报价单", "报价", "供应商报价", "QUO",
+        "有几家供应商报价", "查报价"
+      ],
+      "trigger_contexts": [
+        {
+          "pattern": ".*",
+          "required_slots": [],
+          "optional_slots": ["time_range", "quotation_id", "inquiry_id", "vendor_id"]
+        }
+      ],
+      "slot_extractors": {
+        "time_range": {
+          "type": "temporal",
+          "description": "时间范围"
+        },
+        "quotation_id": {
+          "type": "regex",
+          "pattern": "QUO[_-]?\\d{3,}",
+          "description": "报价单号"
+        },
+        "inquiry_id": {
+          "type": "regex",
+          "pattern": "(?:RFQ|INQ)[_-]?\\d{8}[_-]?\\d{3,}",
+          "description": "关联询价单号"
+        }
+      },
+      "action": "purchase_quotations/list",
+      "response_template": "查询到 {total} 条报价单"
+    },
+    {
+      "id": "procurement/query_purchase_order",
+      "name": "采购订单查询",
+      "description": "查询采购订单抬头列表或详情",
+      "intent_keywords": [
+        "采购订单", "PO", "订单列表",
+        "查订单", "看看订单"
+      ],
+      "trigger_contexts": [
+        {
+          "pattern": ".*",
+          "required_slots": [],
+          "optional_slots": ["time_range", "po_id", "vendor_id", "execution_status"]
+        }
+      ],
+      "slot_extractors": {
+        "time_range": {
+          "type": "temporal",
+          "description": "时间范围"
+        },
+        "po_id": {
+          "type": "regex",
+          "pattern": "PO[_-]?\\d{8}[_-]?\\d{3,}",
+          "description": "采购订单号"
+        }
+      },
+      "action": "purchase_order_heads/list",
+      "response_template": "查询到 {total} 条采购订单"
+    },
+    {
+      "id": "procurement/create_inquiry",
+      "name": "创建询价单",
+      "description": "基于采购需求创建询价单",
+      "intent_keywords": [
+        "询价", "发起询价", "创建询价单", "生成询价单",
+        "向供应商询价", "发起询价流程"
+      ],
+      "trigger_contexts": [
+        {
+          "pattern": ".*",
+          "required_slots": ["pr_id"],
+          "optional_slots": ["pr_item", "supplier_scope", "deadline"]
+        }
+      ],
+      "slot_extractors": {
+        "pr_id": {
+          "type": "regex",
+          "pattern": "PR[_-]?\\d{8}[_-]?\\d{3,}",
+          "description": "采购需求ID"
+        },
+        "deadline": {
+          "type": "temporal",
+          "description": "询价截止日期"
+        }
+      },
+      "action": "procurement/create_inquiry_from_pr",
+      "response_template": "已基于采购需求 {pr_id} 创建询价单 {inquiry_id}"
+    },
+    {
+      "id": "procurement/compare_quotations",
+      "name": "比价分析",
+      "description": "对多家供应商的报价进行比价分析",
+      "intent_keywords": [
+        "比价", "开始比价", "推荐供应商", "比较报价",
+        "哪家便宜", "最优价格", "价格分析", "自动比价"
+      ],
+      "trigger_contexts": [
+        {
+          "pattern": ".*",
+          "required_slots": ["inquiry_id"],
+          "optional_slots": ["material_id"]
+        }
+      ],
+      "slot_extractors": {
+        "inquiry_id": {
+          "type": "regex",
+          "pattern": "(?:RFQ|INQ)[_-]?\\d{8}[_-]?\\d{3,}",
+          "description": "询价单号"
+        }
+      },
+      "action": "analytics/generate_price_comparison",
+      "response_template": "比价分析完成，推荐 {vendor_d}，原因：{reason}"
+    },
+    {
+      "id": "procurement/create_purchase_order",
+      "name": "创建采购订单",
+      "description": "基于采购需求和报价单创建采购订单",
+      "intent_keywords": [
+        "生成订单", "创建采购订单", "下达采购订单",
+        "创建PO", "生成采购单", "根据报价创建PO"
+      ],
+      "trigger_contexts": [
+        {
+          "pattern": ".*",
+          "required_slots": ["pr_id", "pr_item", "quotation_id", "quotation_item"],
+          "optional_slots": ["submit_approval"]
+        }
+      ],
+      "slot_extractors": {
+        "pr_id": {
+          "type": "regex",
+          "pattern": "PR[_-]?\\d{8}[_-]?\\d{3,}",
+          "description": "采购需求ID"
+        },
+        "quotation_id": {
+          "type": "regex",
+          "pattern": "QUO[_-]?\\d{3,}",
+          "description": "报价单号"
+        }
+      },
+      "action": "procurement/create_purchase_order_from_pr_and_quotation",
+      "response_template": "采购订单已创建：{po_id}，关联报价单：{quotation_id}"
+    },
+    {
+      "id": "procurement/query_execution_status",
+      "name": "订单执行查询",
+      "description": "查询采购订单执行状态",
+      "intent_keywords": [
+        "执行情况", "订单状态", "收货进度", "订单进度",
+        "发货状态", "入库情况", "PO执行", "采购进度"
+      ],
+      "trigger_contexts": [
+        {
+          "pattern": ".*",
+          "required_slots": ["po_id"],
+          "optional_slots": []
+        }
+      ],
+      "slot_extractors": {
+        "po_id": {
+          "type": "regex",
+          "pattern": "PO[_-]?\\d{8}[_-]?\\d{3,}",
+          "description": "采购订单号"
+        }
+      },
+      "action": "analytics/get_purchase_order_execution_status",
+      "response_template": "采购订单 {po_id} 执行状态：审批{approval_status}、发货{shipment_status}、收货{receipt_status}"
+    }
+  ],
+  "slot_type_definitions": {
+    "temporal": {
+      "description": "时间范围类型",
+      "supported_formats": ["date_range", "single_date"],
+      "parser": "TimeRangeExtractor"
+    },
+    "enum": {
+      "description": "枚举类型",
+      "validation": "strict"
+    },
+    "regex": {
+      "description": "正则表达式类型",
+      "validation": "pattern_match"
+    },
+    "reference": {
+      "description": "引用类型",
+      "validation": "ontology_lookup"
+    }
+  }
+}

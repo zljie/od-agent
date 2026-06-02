@@ -128,6 +128,27 @@ class TaskExecutor:
             "metadata": metadata,
         }
 
+    def _build_plan_json(
+        self, nodes: List[TaskNode], results: List[Dict[str, Any]], user_message: str = ""
+    ) -> Dict[str, Any]:
+        """Build the plan JSON payload for SSE emission and error reporting."""
+        task_summaries = []
+        for node, result in zip(nodes, results):
+            task_summaries.append({
+                "node_id": node.node_id,
+                "skill_id": node.skill_id,
+                "params": node.params,
+                "rationale": node.rationale,
+                "success": result.get("success", False),
+                "error": result.get("error"),
+            })
+
+        return {
+            "user_message": user_message,
+            "task_count": len(nodes),
+            "tasks": task_summaries,
+        }
+
     def _resolve_params(
         self, params: Dict[str, Any], completed: Dict[str, Dict[str, Any]]
     ) -> Dict[str, Any]:
@@ -196,8 +217,6 @@ class TaskExecutor:
             if r.get("success"):
                 all_failed = False
                 raw = r.get("result", {})
-                # Skill execute() returns {"success": ..., "response": "...", "metadata": {...}}
-                # The user-facing text lives one level deeper than r["result"]["response"]
                 response = raw.get("response", "") if isinstance(raw, dict) else str(raw)
                 if response:
                     parts.append(response)
@@ -212,6 +231,89 @@ class TaskExecutor:
             return f"__DELEGATE_LLM__\n" + "\n".join(parts)
 
         return "\n".join(parts)
+
+    def aggregate_responses_ex(
+        self, results: List[Dict[str, Any]], user_message: str = ""
+    ) -> Dict[str, Any]:
+        """Extended aggregator: returns a dict with text, plan_json, and all_failed flag.
+
+        Used by streaming to build the final content message that includes a
+        "任务未完成" report when all skills failed with preflight/tool errors.
+        """
+        parts: List[str] = []
+        all_failed = True
+        failed_tasks: List[Dict[str, Any]] = []
+
+        for r in results:
+            if r.get("success"):
+                all_failed = False
+                raw = r.get("result", {})
+                response = raw.get("response", "") if isinstance(raw, dict) else str(raw)
+                if response:
+                    parts.append(response)
+            else:
+                err = r.get("error", "未知错误")
+                parts.append(f"[{r['skill_id']}] {err}")
+                failed_tasks.append({
+                    "skill_id": r.get("skill_id", ""),
+                    "error": err,
+                })
+
+        if not parts:
+            return {
+                "text": "无法完成请求。",
+                "plan_json": {"user_message": user_message, "tasks": []},
+                "all_failed": True,
+            }
+
+        plan_json = self._build_plan_json_from_results(results, user_message)
+
+        if all_failed:
+            failure_report = self._build_failure_report(failed_tasks, user_message)
+            return {
+                "text": failure_report,
+                "plan_json": plan_json,
+                "all_failed": True,
+            }
+
+        return {
+            "text": "\n".join(parts),
+            "plan_json": plan_json,
+            "all_failed": False,
+        }
+
+    def _build_plan_json_from_results(
+        self, results: List[Dict[str, Any]], user_message: str = ""
+    ) -> Dict[str, Any]:
+        """Build plan JSON from results list (for aggregate_responses_ex)."""
+        tasks = []
+        for r in results:
+            tasks.append({
+                "skill_id": r.get("skill_id", ""),
+                "success": r.get("success", False),
+                "error": r.get("error"),
+            })
+        return {"user_message": user_message, "tasks": tasks}
+
+    def _build_failure_report(
+        self, failed_tasks: List[Dict[str, Any]], user_message: str = ""
+    ) -> str:
+        """Build a human-readable failure report when all tasks failed."""
+        lines = []
+        lines.append(f"未接收到相关信息，任务未完成。")
+
+        if failed_tasks:
+            tool_errors = [
+                f"  - {t['skill_id']}: {t.get('error', '未知错误')}"
+                for t in failed_tasks
+                if t.get("error")
+            ]
+            if tool_errors:
+                lines.append("")
+                lines.append("技能调用失败详情：")
+                lines.extend(tool_errors)
+
+        return "\n".join(lines)
 
     async def execute_stream(
         self, plan: TaskPlan

@@ -41,6 +41,15 @@ class ChatRequest(BaseModel):
     messages: Optional[List[Any]] = None
     session_id: Optional[str] = None
     stream: bool = False
+    # New fields for 5-step:
+    enable_five_step: bool = True
+    confirmation_result: Optional[Dict[str, Any]] = None
+    capabilities: List[str] = []
+    user_id: Optional[str] = None
+
+
+# Track pending confirmations for 5-step pipeline
+_pending_confirmations: Dict[str, Dict[str, Any]] = {}
 
 
 class ChatResponse(BaseModel):
@@ -245,6 +254,33 @@ def create_app() -> FastAPI:
         if request.stream:
             return EventSourceResponse(agent.chat_stream(user_message))
 
+        # Use 5-step pipeline if enabled
+        if request.enable_five_step:
+            from .five_step.pipeline import FiveStepPipeline
+            pipeline = FiveStepPipeline(agent=agent, session_id=request.session_id)
+            response_text = ""
+            async for event in pipeline.run(user_message, session_id=request.session_id):
+                # event is a dict with "event" and "data" (data may be a JSON string)
+                event_type = event.get("event")
+                if event_type == "content":
+                    data = event.get("data", {})
+                    if isinstance(data, str):
+                        import json
+                        data = json.loads(data)
+                    response_text = data.get("content", "")
+                elif event_type == "error":
+                    data = event.get("data", {})
+                    if isinstance(data, str):
+                        import json
+                        data = json.loads(data)
+                    error_msg = data.get("message", "处理出错")
+                    return ChatResponse(response=f"处理出错：{error_msg}", session_id=request.session_id)
+                elif event_type == "done":
+                    break
+            if not response_text:
+                response_text = "处理完成"
+            return ChatResponse(response=response_text, session_id=request.session_id)
+
         response = await agent.chat(user_message)
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"\n{ts} [CHAT RESPONSE] (non-streaming) length={len(response)}, response={response[:500]}...")
@@ -279,6 +315,75 @@ def create_app() -> FastAPI:
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"{ts} [CHAT/STREAM ALIAS] system_prompt={agent.system_prompt[:100]}...")
         return EventSourceResponse(agent.chat_stream(user_message))
+
+    # ── Five-Step Pipeline Endpoints ───────────────────────────────────────────
+
+    @app.post("/chat/confirm")
+    async def chat_confirm(request: ChatRequest):
+        """Handle user confirmation for 5-step pipeline.
+
+        Receives confirmation result and resumes the pipeline from the waiting step.
+        """
+        from .five_step.pipeline import FiveStepPipeline
+        from .sse_stream import error_event, done as done_event
+        from sse_starlette.sse import EventSourceResponse
+
+        confirmation = request.confirmation_result
+        if not confirmation:
+            return {"error": "confirmation_result is required"}
+
+        task_id = confirmation.get("task_id", "")
+        action = confirmation.get("action", "")  # confirm / cancel
+
+        if action == "cancel":
+            return EventSourceResponse(iter([
+                error_event(
+                    code="CANCELLED",
+                    message="用户取消操作",
+                    recoverable=True,
+                ),
+                done_event(),
+            ]))
+
+        # Store confirmation for the pipeline to pick up
+        _pending_confirmations[task_id] = confirmation
+
+        # Create pipeline and run
+        agent = get_agent()
+        pipeline = FiveStepPipeline(
+            agent=agent,
+            session_id=request.session_id
+        )
+
+        # Run with confirmation context
+        return EventSourceResponse(
+            pipeline.run_with_confirmation(
+                user_input=confirmation.get("user_input", ""),
+                task_id=task_id,
+                confirmation=confirmation,
+                session_id=request.session_id,
+            )
+        )
+
+    @app.get("/five-step/status")
+    async def five_step_status():
+        """Get the 5-step pipeline status and capabilities."""
+        config = load_agent_config()
+        return {
+            "enabled": config.get("enable_five_step", False),
+            "supported_events": [
+                "step_update",
+                "content",
+                "tool_call",
+                "tool_result",
+                "think",
+                "think_done",
+                "confirm_request",
+                "error",
+                "done"
+            ],
+            "capabilities": config.get("capabilities", ["step_lifecycle"]),
+        }
 
     # Process endpoint (AgentApp style)
     @app.post("/process")
@@ -738,6 +843,7 @@ def create_app() -> FastAPI:
             "test_publish": "admin/sections/test_publish.html",
             "test_diagnostic": "admin/sections/test_diagnostic.html",
             "test_cases": "admin/sections/test_cases.html",
+            "procurement": "admin/sections/procurement.html",
         }
         tmpl_path = section_map.get(section, "admin/sections/basic.html")
         tmpl = _jinja_env.get_template(tmpl_path)
@@ -1307,6 +1413,96 @@ def create_app() -> FastAPI:
         tmpl = _jinja_env.get_template("admin/partials/intent_list.html")
         return HTMLResponse(tmpl.render(request=request, intents=intents))
 
+    # ── Procurement Management ────────────────────────────────────────────────
+
+    @app.get("/procurement/ontology")
+    async def get_procurement_ontology():
+        """Get procurement ontology summary."""
+        try:
+            from .procurement import get_procurement_ontology
+            ontology = get_procurement_ontology()
+            return ontology.to_dict()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/procurement/intents")
+    async def get_procurement_intents():
+        """Get all procurement intents."""
+        from .procurement import PROCUREMENT_INTENTS
+        return {
+            "intents": [
+                {
+                    "id": i.id,
+                    "name": i.name,
+                    "description": i.description,
+                    "trigger_keywords": i.trigger_keywords,
+                    "required_slots": i.required_slots,
+                    "action": i.action
+                } for i in PROCUREMENT_INTENTS
+            ]
+        }
+
+    @app.post("/procurement/route")
+    async def route_procurement_message(request: Request):
+        """Route a procurement message to the appropriate intent."""
+        body = await request.json()
+        message = body.get("message", "")
+
+        if not message:
+            raise HTTPException(status_code=400, detail="message is required")
+
+        from .procurement import IntentRouter
+        router = IntentRouter()
+        result = router.handle_message(message)
+
+        return {"response": result}
+
+    @app.post("/procurement/execute")
+    async def execute_procurement_action(request: Request):
+        """Execute a procurement action directly."""
+        body = await request.json()
+        action = body.get("action", "")
+        params = body.get("params", {})
+
+        if not action:
+            raise HTTPException(status_code=400, detail="action is required")
+
+        from .procurement import get_procurement_connector
+        connector = get_procurement_connector()
+        result = connector.call(action, params)
+
+        return {
+            "success": result.success,
+            "data": result.data,
+            "message": result.message,
+            "error": result.error
+        }
+
+    @app.get("/procurement/actions")
+    async def get_procurement_actions():
+        """Get all available procurement actions."""
+        from .procurement import get_procurement_connector
+        connector = get_procurement_connector()
+        return {"actions": connector.get_available_actions()}
+
+    @app.get("/procurement/scenarios")
+    async def get_procurement_scenarios():
+        """Get all procurement scenarios from ontology."""
+        from .procurement import get_procurement_ontology
+        ontology = get_procurement_ontology()
+        return {
+            "scenarios": [
+                {
+                    "name": s.name,
+                    "description": s.description,
+                    "mode": s.mode,
+                    "key_functions": s.key_functions
+                } for s in ontology.scenarios
+            ]
+        }
+
+    # ── Procurement Management ────────────────────────────────────────────────
+
     # Welcome page
     @app.get("/")
     async def root():
@@ -1320,6 +1516,7 @@ def create_app() -> FastAPI:
                 "health": "/health (GET) - Health check",
                 "config": "/config (GET/PUT) - Get/Update agent configuration",
                 "admin": "/admin (GET) - Admin UI for configuration management",
+                "procurement": "/procurement/* - Procurement management APIs",
             },
         }
 

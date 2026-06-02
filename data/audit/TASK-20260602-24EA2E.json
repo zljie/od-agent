@@ -1,0 +1,27 @@
+{
+  "taskId": "TASK-20260602-24EA2E",
+  "userInput": "{\"code\": \"PIPELINE_ERROR\", \"message\": \"name 'ontology_result' is not defined\", \"recoverable\": true, \"suggestions\": [\"请稍后重试\", \"如问题持续，请联系管理员\"]}",
+  "intent": "general_query",
+  "intentLabel": "通用查询",
+  "ontologyVersion": "0.1.2",
+  "matchedObjects": [
+    "unknown"
+  ],
+  "matchedActions": [
+    "purchase_requests/list"
+  ],
+  "connectors": [
+    "ProcurementConnector"
+  ],
+  "confirmationRequired": false,
+  "finalStatus": "completed",
+  "totalDurationMs": 5.298852920532227,
+  "stepDurations": {
+    "1": 0.26702880859375,
+    "2": 3.8809776306152344,
+    "3": 0.6341934204101562,
+    "4": 0.4417896270751953,
+    "5": 0.07486343383789062
+  },
+  "createdAt": "2026-06-02T17:53:03.706343"
+}

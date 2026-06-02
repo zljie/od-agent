@@ -11,6 +11,8 @@ from agentscope.message import UserMsg
 from agentscope.model import OpenAIChatModel
 from dotenv import load_dotenv
 
+from .diagnostics.models import TestRunStatus
+
 from .intent import (
     IntentBinding,
     IntentBindingTable,
@@ -26,6 +28,7 @@ from .preprocessing import InputPreprocessingPipeline, load_preprocessing_config
 from .models import get_model_config
 from .planner import RuleBasedPlanner
 from .skills import get_skill_manager, reload_skill_manager
+from .procurement.ontology_loader import get_procurement_ontology, DEFAULT_ONTOLOGY_PATH
 
 load_dotenv()
 
@@ -86,7 +89,19 @@ class CustomerServiceAgent:
         config = load_agent_config()
         
         self.agent_name = agent_name or config.get("agent_name", "OD_Assistant")
-        self.system_prompt = system_prompt or config.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
+        
+        # Load procurement ontology and inject into system prompt
+        self._ontology = get_procurement_ontology()
+        ontology_context = self._ontology.to_system_prompt_context()
+        
+        # Build system prompt with ontology context
+        if system_prompt:
+            base_prompt = system_prompt
+        else:
+            base_prompt = config.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
+        
+        # Inject ontology as persistent knowledge
+        self.system_prompt = self._build_system_prompt_with_ontology(base_prompt, ontology_context)
         
         # Get model config
         if model_config is None:
@@ -153,6 +168,39 @@ class CustomerServiceAgent:
             self._preprocessing = InputPreprocessingPipeline.from_config(
                 self._preprocessing_cfg, sem_skill=sem_skill
             )
+
+        # Session ID for five-step pipeline
+        self._session_id: Optional[str] = None
+
+    def _build_system_prompt_with_ontology(self, base_prompt: str, ontology_context: str) -> str:
+        """Build system prompt with ontology injected as persistent knowledge."""
+        return f"""{base_prompt}
+
+---
+
+## 业务知识图谱（本体）
+
+你被配置了一个采购业务的领域知识图谱，作为你的持久化知识。在处理采购相关问题时，应始终引用本知识图谱中的定义。
+
+### 如何使用本知识图谱
+1. 当用户询问采购相关业务时，先在知识图谱中查找相关的业务对象定义
+2. 理解业务对象之间的关联关系（采购需求 → 询价 → 报价 → 采购订单 → 收货执行）
+3. 遵循知识图谱中的业务口径说明进行数据查询和分析
+4. 在回答用户问题时，可以引用知识图谱中的术语和定义
+
+### 知识图谱内容
+
+{ontology_context}
+
+---
+
+请基于以上业务知识图谱，为用户提供准确、专业的采购业务咨询和服务。
+"""
+
+    @property
+    def is_five_step_enabled(self) -> bool:
+        config = load_agent_config()
+        return config.get("enable_five_step", False)
 
     def _load_intent_rules(self) -> None:
         """Load intent routing rules from config."""
@@ -330,6 +378,208 @@ class CustomerServiceAgent:
         # EXECUTE: skill returned structured result
         return raw_response
 
+    async def chat_with_diagnostics(
+        self,
+        user_input: str,
+        diagnostics: "DiagnosticsCollector",
+        scenario_id: str = "",
+    ) -> Dict[str, Any]:
+        """Process user input with full diagnostic tracing.
+
+        Returns:
+            {
+                "response": str,
+                "decision": str,
+                "test_run": TestRun,
+            }
+        """
+        import time
+
+        start_ms = int(time.time() * 1000)
+        raw_input = user_input
+
+        # ── Phase 0: Input preprocessing (L1-L3) ──────────────────────────────────
+        pp_result = None
+        if self._preprocessing and self._preprocessing.is_enabled:
+            pp_result = self._preprocessing.process(user_input)
+            user_input = pp_result.normalized_input
+            diagnostics.record_preprocessing({
+                "normalized_input": user_input,
+                "corrections": [
+                    {"original": c.original, "corrected": c.corrected}
+                    for c in (pp_result.corrections or [])
+                ],
+                "protected_terms": pp_result.protected_terms or [],
+            })
+
+        # ── Phase 1: Temporal → Intent → Plan (via pipeline) ────────────────────
+        # Run the skill manager pipeline to get classification + plan
+        from .intent.intent_classification import IntentClassification
+        from .planner.task_plan import Decision
+
+        temporal_result = None
+        intent_classification: Optional[IntentClassification] = None
+        intent_decision = "delegate_llm"
+        plan_result = None
+
+        try:
+            today_date = None
+            time_skill = self._skill_manager.get_skill("Time Converter")
+            if time_skill:
+                today_date = getattr(time_skill, "today", None)
+
+            if self._skill_manager._temporal_parser:
+                temporal_result = self._skill_manager._temporal_parser.parse(
+                    user_input, today_date=today_date
+                )
+
+            if self._skill_manager._classifier:
+                classifications = self._skill_manager._classifier.classify_with_context(
+                    user_input, temporal_result
+                )
+                intent_classification = max(classifications, key=lambda c: c.confidence)
+            else:
+                intent_classification = self._skill_manager._classify_fallback(user_input)
+
+            intent_decision = intent_classification.intent_type
+
+            if self._skill_manager._planner:
+                plan_result = self._skill_manager._planner.plan(
+                    [intent_classification],
+                    self._skill_manager._registry,
+                    temporal=temporal_result,
+                )
+
+            # Record intent trace
+            diagnostics.record_intent(
+                selected_intent=intent_classification.intent_type,
+                confidence=intent_classification.confidence,
+                threshold=0.3,
+                candidates=[
+                    {"intent": c.intent_type, "confidence": c.confidence, "trigger_reason": ""}
+                    for c in getattr(intent_classification, "candidates", [])
+                ],
+                routing_result=plan_result.decision.value if plan_result else intent_decision,
+            )
+
+            # Record plan step: intent classification
+            diagnostics.record_plan_step(
+                step_name=f"意图识别: {intent_classification.intent_type}",
+                status="success",
+                skill_name=intent_classification.intent_type,
+            )
+
+        except Exception as e:
+            intent_decision = "error"
+            diagnostics.record_plan_step(
+                step_name="意图识别",
+                status="failed",
+                details={"error": str(e)},
+            )
+
+        # ── Phase 2: Execute or fallback ─────────────────────────────────────────
+        response = ""
+        final_decision = intent_decision
+        skill_name = ""
+        tool_name = ""
+        status = TestRunStatus.SUCCESS
+
+        try:
+            if plan_result and plan_result.decision == Decision.EXECUTE:
+                final_decision = "execute"
+                for task in plan_result.tasks:
+                    skill_name = task.skill_id
+                    tool_name = task.tool_id or skill_name
+
+                    diagnostics.record_plan_step(
+                        step_name=f"任务执行: {task.description or task.skill_id}",
+                        skill_name=skill_name,
+                        tool_name=tool_name,
+                    )
+
+                    # Execute the skill
+                    task_start = int(time.time() * 1000)
+                    try:
+                        skill = self._skill_manager.get_skill(task.skill_id)
+                        if skill:
+                            result = await skill.execute(task.params or {})
+                            task_elapsed = int(time.time() * 1000) - task_start
+                            task_output = result.get("response", str(result)) if isinstance(result, dict) else str(result)
+                            response = task_output
+
+                            diagnostics.record_tool_call(
+                                skill_name=skill_name,
+                                tool_name=tool_name,
+                                status=TestRunStatus.SUCCESS,
+                                input_data=task.params or {},
+                                output_data=task_output[:500],
+                                latency_ms=task_elapsed,
+                            )
+                        else:
+                            diagnostics.record_tool_call(
+                                skill_name=skill_name,
+                                tool_name=tool_name,
+                                status=TestRunStatus.ERROR,
+                                input_data=task.params or {},
+                                error_message=f"Skill '{skill_name}' not found",
+                            )
+                            status = TestRunStatus.ERROR
+                    except Exception as skill_error:
+                        task_elapsed = int(time.time() * 1000) - task_start
+                        diagnostics.record_tool_call(
+                            skill_name=skill_name,
+                            tool_name=tool_name,
+                            status=TestRunStatus.ERROR,
+                            input_data=task.params or {},
+                            error_message=str(skill_error),
+                            latency_ms=task_elapsed,
+                        )
+                        response = f"技能执行出错: {skill_error}"
+                        status = TestRunStatus.ERROR
+
+            elif plan_result and plan_result.decision in (
+                Decision.REJECT, Decision.CLARIFY, Decision.SLOT_MISSING,
+                Decision.HITL_CONFIRM, Decision.DELEGATE_LLM,
+            ):
+                final_decision = plan_result.decision.value
+                if plan_result.decision == Decision.REJECT:
+                    response = plan_result.rejected_reason or "无法处理该请求。"
+                elif plan_result.decision == Decision.SLOT_MISSING:
+                    response = "请提供必要的信息：" + ", ".join(plan_result.warnings)
+                else:
+                    response = plan_result.hitl_prompt
+
+                diagnostics.record_plan_step(
+                    step_name=f"决策: {final_decision}",
+                    skill_name=intent_classification.intent_type if intent_classification else "",
+                )
+            else:
+                # No plan — delegate to LLM
+                final_decision = "delegate_llm"
+                response = await self._llm_chat(user_input)
+
+        except Exception as exec_error:
+            response = f"执行出错: {exec_error}"
+            status = TestRunStatus.ERROR
+            final_decision = "error"
+
+        # ── Finalize diagnostics ───────────────────────────────────────────────────
+        elapsed_ms = int(time.time() * 1000) - start_ms
+
+        test_run = diagnostics.finalize(
+            user_input=raw_input,
+            output=response,
+            model=self.model.model,
+            latency_ms=elapsed_ms,
+            status=status,
+        )
+
+        return {
+            "response": response,
+            "decision": final_decision,
+            "test_run": test_run,
+        }
+
     async def _llm_chat(self, user_input: str, skill_context: Optional[str] = None) -> str:
         """Delegate to the ReAct agent, optionally with skill result context."""
         # Build skill catalog so the LLM always knows what capabilities exist
@@ -420,9 +670,23 @@ class CustomerServiceAgent:
         - delegate_llm: LLM stream via _llm_chat_stream()
         - EXECUTE: tool_call / tool_result / content events from TaskExecutor
         """
-        from .sse_stream import (
-            done,
-        )
+        from .sse_stream import done
+
+        # Check if five-step mode is enabled
+        config = load_agent_config()
+        enable_five_step = config.get("enable_five_step", False)
+
+        if enable_five_step:
+            # Use the new 5-step pipeline
+            from .five_step.pipeline import FiveStepPipeline
+            pipeline = FiveStepPipeline(agent=self, session_id=getattr(self, '_session_id', None))
+            async for event in pipeline.run(user_input, session_id=getattr(self, '_session_id', None)):
+                # Filter out internal events that shouldn't go to client
+                ev_type = event.get("event", "")
+                if ev_type == "_internal":
+                    continue
+                yield event
+            return
 
         # L1-L3: Input preprocessing — never modifies raw_input
         if self._preprocessing and self._preprocessing.is_enabled:

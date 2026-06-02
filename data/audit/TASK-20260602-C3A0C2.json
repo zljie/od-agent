@@ -1,0 +1,27 @@
+{
+  "taskId": "TASK-20260602-C3A0C2",
+  "userInput": "帮我查一下所有未执行的采购计划",
+  "intent": "procurement/query_unexecuted_pr",
+  "intentLabel": "查询未执行采购需求",
+  "ontologyVersion": "0.1.2",
+  "matchedObjects": [
+    "purchase_requests"
+  ],
+  "matchedActions": [
+    "purchase_requests/list"
+  ],
+  "connectors": [
+    "ProcurementConnector"
+  ],
+  "confirmationRequired": [],
+  "finalStatus": "completed",
+  "totalDurationMs": 7.15947151184082,
+  "stepDurations": {
+    "1": 4.430055618286133,
+    "2": 0.29015541076660156,
+    "3": 2.0821094512939453,
+    "4": 0.2770423889160156,
+    "5": 0.080108642578125
+  },
+  "createdAt": "2026-06-02T18:03:30.462563"
+}
