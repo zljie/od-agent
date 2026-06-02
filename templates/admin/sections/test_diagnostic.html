@@ -1,0 +1,986 @@
+<!-- Agent 测试诊断与发布工作台 -->
+<div class="config-card" x-data="testDiagnosticSection()">
+    <!-- 顶部 Agent 状态条 -->
+    <div class="agent-status-bar">
+        <div class="status-item">
+            <span class="status-label">Agent</span>
+            <span class="status-value" x-text="agentConfig.agent_name || 'OD_Assistant'">OD_Assistant</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">状态</span>
+            <span class="badge" :class="agentConfig.status === 'published' ? 'badge-published' : 'badge-draft'"
+                  x-text="agentConfig.status === 'published' ? '已发布' : '草稿'">草稿</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Provider</span>
+            <span class="status-value" x-text="agentConfig.provider_id || 'DeepSeek'">DeepSeek</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Model</span>
+            <span class="status-value" x-text="agentConfig.model_name || 'DeepSeek V3'">DeepSeek V3</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">API状态</span>
+            <span class="api-status" :class="apiReady ? 'api-ready' : 'api-error'"
+                  x-text="apiReady ? '就绪' : '异常'">就绪</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">最后保存</span>
+            <span class="status-value" x-text="lastSaved || '—'">—</span>
+        </div>
+    </div>
+
+    <!-- 测试配置行 -->
+    <div class="test-config-row">
+        <div class="config-field">
+            <label>测试场景</label>
+            <select x-model="scenarioId">
+                <option value="">默认场景</option>
+                <option value="order_query">订单查询</option>
+                <option value="logistics">物流追踪</option>
+                <option value="complaint">投诉处理</option>
+                <option value="product_inquiry">产品咨询</option>
+            </select>
+        </div>
+        <div class="config-field">
+            <label>用户画像</label>
+            <select x-model="userProfile">
+                <option value="">普通用户</option>
+                <option value="vip">VIP用户</option>
+                <option value="new">新用户</option>
+                <option value="enterprise">企业用户</option>
+            </select>
+        </div>
+        <div class="config-field config-field-toggle">
+            <label>
+                <input type="checkbox" x-model="includeContext">
+                <span>包含上下文</span>
+            </label>
+        </div>
+    </div>
+
+    <!-- 测试输入区 -->
+    <div class="test-input-section">
+        <label>测试消息</label>
+        <textarea id="testMessage" x-model="testMessage" rows="3"
+                  placeholder="输入测试消息，例如：我的订单到哪了？订单号是 OD123456"
+                  @keydown.ctrl.enter="runTest()"></textarea>
+        <div class="test-actions">
+            <button type="button" class="btn btn-primary" @click="runTest()"
+                    :disabled="!testMessage.trim() || testing">
+                <span x-show="testing" class="btn-spinner"></span>
+                <span x-text="testing ? '测试中...' : '发送测试'">发送测试</span>
+            </button>
+            <button type="button" class="btn btn-outline" @click="clearContext()">
+                清空上下文
+            </button>
+            <button type="button" class="btn btn-outline" @click="saveAsCase()"
+                    :disabled="!lastTestRun">
+                保存为用例
+            </button>
+        </div>
+    </div>
+
+    <!-- Agent 回复区域 -->
+    <div class="test-response-section" x-show="testResult || testing">
+        <div class="response-header">
+            <span class="response-title">Agent 回复</span>
+            <span class="response-meta" x-show="lastTestRun">
+                耗时 <span x-text="lastTestRun.latency_ms"></span>ms |
+                模型 <span x-text="lastTestRun.model"></span> |
+                输入 Token <span x-text="lastTestRun.input_tokens"></span> |
+                输出 <span x-text="lastTestRun.output_tokens"></span>
+            </span>
+        </div>
+        <div class="response-content" x-show="testResult">
+            <pre style="white-space: pre-wrap; font-size: 0.85rem;" x-text="testResult"></pre>
+        </div>
+        <div x-show="testing" class="response-loading">
+            <span class="loading-dots">等待回复</span><span class="dots-animate"></span>
+        </div>
+    </div>
+
+    <!-- 诊断详情 Tabs -->
+    <div class="diagnostic-tabs" x-show="lastTestRun" x-transition>
+        <div class="tab-buttons">
+            <button class="tab-btn" :class="{ 'active': activeTab === 'intent' }" @click="activeTab = 'intent'">
+                意图命中
+            </button>
+            <button class="tab-btn" :class="{ 'active': activeTab === 'plan' }" @click="activeTab = 'plan'">
+                任务链路
+            </button>
+            <button class="tab-btn" :class="{ 'active': activeTab === 'resource' }" @click="activeTab = 'resource'">
+                资源使用
+            </button>
+            <button class="tab-btn" :class="{ 'active': activeTab === 'prompt' }" @click="activeTab = 'prompt'">
+                Prompt预览
+            </button>
+            <button class="tab-btn" :class="{ 'active': activeTab === 'calllog' }" @click="activeTab = 'calllog'">
+                调用日志
+            </button>
+            <button class="tab-btn" :class="{ 'active': activeTab === 'trace' }" @click="activeTab = 'trace'">
+                原始Trace
+            </button>
+        </div>
+
+        <div class="tab-content">
+            <!-- 意图命中 Tab -->
+            <div x-show="activeTab === 'intent'" x-html="renderIntentTab()"></div>
+
+            <!-- 任务链路 Tab -->
+            <div x-show="activeTab === 'plan'" x-html="renderPlanTab()"></div>
+
+            <!-- 资源使用 Tab -->
+            <div x-show="activeTab === 'resource'" x-html="renderResourceTab()"></div>
+
+            <!-- Prompt预览 Tab -->
+            <div x-show="activeTab === 'prompt'" x-html="renderPromptTab()"></div>
+
+            <!-- 调用日志 Tab -->
+            <div x-show="activeTab === 'calllog'" x-html="renderCallLogTab()"></div>
+
+            <!-- 原始Trace Tab -->
+            <div x-show="activeTab === 'trace'" x-html="renderTraceTab()"></div>
+        </div>
+    </div>
+
+    <!-- 无测试结果时的提示 -->
+    <div x-show="!lastTestRun && !testing" class="empty-state">
+        <div class="empty-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+        </div>
+        <p class="empty-text">输入消息后点击「发送测试」</p>
+        <p class="empty-hint">查看 Agent 回复及详细诊断信息</p>
+    </div>
+</div>
+
+<style>
+.agent-status-bar {
+    display: flex;
+    gap: 1.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--surface-secondary);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.status-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.status-value {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.api-status {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.api-ready {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.api-error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.test-config-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.config-field label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.config-field select {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--surface-primary);
+    color: var(--text-primary);
+}
+
+.config-field-toggle label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    margin-top: 1.5rem;
+}
+
+.test-input-section {
+    margin-bottom: 1rem;
+}
+
+.test-input-section label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+
+.test-input-section textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    background: var(--surface-primary);
+    color: var(--text-primary);
+    resize: vertical;
+    margin-bottom: 0.75rem;
+}
+
+.test-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.test-response-section {
+    background: var(--surface-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.response-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.response-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.response-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.response-content {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.response-loading {
+    text-align: center;
+    padding: 1rem;
+    color: var(--text-muted);
+}
+
+.diagnostic-tabs {
+    margin-top: 1rem;
+}
+
+.tab-buttons {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 1rem;
+    overflow-x: auto;
+}
+
+.tab-btn {
+    padding: 0.6rem 1rem;
+    border: none;
+    background: transparent;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    white-space: nowrap;
+}
+
+.tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.tab-btn.active {
+    color: var(--brand-color);
+    border-bottom-color: var(--brand-color);
+}
+
+.tab-content {
+    min-height: 200px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-muted);
+}
+
+.empty-icon {
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+.empty-text {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+.empty-hint {
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.loading-dots {
+    animation: pulse 1.5s infinite;
+}
+
+.dots-animate::after {
+    content: '';
+    animation: dots 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@keyframes dots {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+}
+
+/* Diagnostic Tab Styles */
+.diagnostic-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.diagnostic-table th,
+.diagnostic-table td {
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.diagnostic-table th {
+    background: var(--surface-secondary);
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.diagnostic-table tr:hover {
+    background: var(--surface-secondary);
+}
+
+.confidence-high {
+    color: #166534;
+    font-weight: 600;
+}
+
+.confidence-medium {
+    color: #92400e;
+}
+
+.confidence-low {
+    color: #991b1b;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+
+.status-success {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.status-error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.status-info {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.plan-timeline {
+    border-left: 2px solid var(--border-soft);
+    padding-left: 1.5rem;
+    margin-left: 0.5rem;
+}
+
+.plan-step {
+    position: relative;
+    padding: 0.75rem 0;
+}
+
+.plan-step::before {
+    content: '';
+    position: absolute;
+    left: -1.6rem;
+    top: 1rem;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--brand-color);
+}
+
+.plan-step.step-failed::before {
+    background: #ef4444;
+}
+
+.plan-step.step-waiting::before {
+    background: #f59e0b;
+}
+
+.step-name {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+}
+
+.step-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.step-result {
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    padding: 0.5rem;
+    background: var(--surface-secondary);
+    border-radius: 4px;
+}
+
+.missing-slots {
+    color: #f59e0b;
+    font-size: 0.75rem;
+}
+
+.trace-json {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+
+.trace-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.copy-btn {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
+    background: var(--surface-secondary);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.copy-btn:hover {
+    background: var(--surface-tertiary);
+}
+
+.resource-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+}
+
+.resource-card {
+    background: var(--surface-secondary);
+    border-radius: 8px;
+    padding: 0.75rem;
+}
+
+.resource-card-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.resource-card-status {
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.prompt-preview {
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.75rem;
+    line-height: 1.6;
+}
+
+.prompt-line {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+}
+
+.prompt-type {
+    color: var(--brand-color);
+    min-width: 100px;
+}
+
+.prompt-status {
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+</style>
+
+<script>
+// Make testDiagnosticSection globally available
+function testDiagnosticSection() {
+    return {
+        testMessage: '',
+        scenarioId: '',
+        userProfile: '',
+        includeContext: false,
+        testing: false,
+        testResult: null,
+        lastTestRun: null,
+        lastDecision: null,
+        activeTab: 'intent',
+        apiReady: true,
+        lastSaved: null,
+        agentConfig: {
+            agent_name: 'OD_Assistant',
+            status: 'draft',
+            provider_id: 'DeepSeek',
+            model_name: 'DeepSeek V3',
+        },
+
+        async init() {
+            await this.loadAgentConfig();
+        },
+
+        async loadAgentConfig() {
+            try {
+                const resp = await fetch('/config');
+                const data = await resp.json();
+                this.agentConfig = {
+                    agent_name: data.agent_name || 'OD_Assistant',
+                    status: data.status || 'draft',
+                    provider_id: data.provider_id || 'DeepSeek',
+                    model_name: data.model_name || 'DeepSeek V3',
+                };
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
+        },
+
+        async runTest() {
+            if (!this.testMessage.trim()) return;
+
+            this.testing = true;
+            this.testResult = null;
+            this.lastTestRun = null;
+
+            try {
+                const resp = await fetch(`/admin/agents/1/test-runs`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message: this.testMessage,
+                        scenario_id: this.scenarioId,
+                    }),
+                });
+
+                const data = await resp.json();
+
+                if (data.status === 'success') {
+                    this.testResult = data.response;
+                    this.lastTestRun = data.test_run;
+                    this.lastDecision = data.decision;
+                    this.lastSaved = '刚刚';
+                } else {
+                    this.testResult = 'Error: ' + (data.message || 'Unknown error');
+                }
+            } catch (e) {
+                this.testResult = 'Error: ' + e.message;
+            }
+
+            this.testing = false;
+        },
+
+        async clearContext() {
+            try {
+                await fetch('/config/reset', { method: 'POST' });
+                this.showToast('上下文已清空');
+            } catch (e) {
+                console.error('Failed to reset:', e);
+            }
+        },
+
+        async saveAsCase() {
+            if (!this.lastTestRun) return;
+
+            const name = prompt('请输入用例名称：', '新用例');
+            if (!name) return;
+
+            try {
+                await fetch(`/admin/agents/1/test-runs/${this.lastTestRun.id}/save-as-case`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: name,
+                        expected_intent: this.lastTestRun.intent_trace?.selected_intent || '',
+                    }),
+                });
+                this.showToast('用例已保存');
+            } catch (e) {
+                this.showToast('保存失败: ' + e.message, 'error');
+            }
+        },
+
+        showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `<span>${message}</span><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        },
+
+        renderIntentTab() {
+            if (!this.lastTestRun?.intent_trace) {
+                return '<p class="empty-text">无意图识别数据</p>';
+            }
+
+            const intent = this.lastTestRun.intent_trace;
+            const confidenceClass = intent.confidence >= 0.8 ? 'confidence-high' :
+                                   intent.confidence >= 0.6 ? 'confidence-medium' : 'confidence-low';
+
+            let html = `
+                <table class="diagnostic-table">
+                    <thead>
+                        <tr>
+                            <th>意图名称</th>
+                            <th>置信度</th>
+                            <th>触发依据</th>
+                            <th>路由结果</th>
+                            <th>是否选中</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            intent.candidates?.forEach((c, i) => {
+                const confClass = c.confidence >= 0.8 ? 'confidence-high' :
+                                 c.confidence >= 0.6 ? 'confidence-medium' : 'confidence-low';
+                html += `
+                    <tr>
+                        <td><code>${c.intent}</code></td>
+                        <td class="${confClass}">${(c.confidence * 100).toFixed(0)}%</td>
+                        <td>${c.trigger_reason || '—'}</td>
+                        <td>${i === 0 ? intent.routing_result || '主意图' : '备选'}</td>
+                        <td>${i === 0 ? '✓ 是' : '否'}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+                <div style="margin-top: 1rem; padding: 0.75rem; background: var(--surface-secondary); border-radius: 8px;">
+                    <p><strong>最终命中：</strong>${intent.selected_intent}</p>
+                    <p><strong>命中置信度：</strong><span class="${confidenceClass}">${(intent.confidence * 100).toFixed(0)}%</span></p>
+                    <p><strong>触发阈值：</strong>${intent.threshold}</p>
+                    <p><strong>结论：</strong>${intent.confidence >= intent.threshold ? '符合预期 ✓' : '低于阈值，建议优化'}</p>
+                </div>
+            `;
+
+            return html;
+        },
+
+        renderPlanTab() {
+            if (!this.lastTestRun?.plan_trace?.steps?.length) {
+                return '<p class="empty-text">无任务链路数据</p>';
+            }
+
+            let html = '<div class="plan-timeline">';
+
+            this.lastTestRun.plan_trace.steps.forEach((step, i) => {
+                const stepClass = step.status === 'success' ? '' :
+                                 step.status === 'failed' ? 'step-failed' : 'step-waiting';
+                const statusIcon = step.status === 'success' ? '✓' :
+                                  step.status === 'failed' ? '✗' : '⏳';
+
+                html += `
+                    <div class="plan-step ${stepClass}">
+                        <div class="step-name">
+                            Step ${step.step} - ${step.name}
+                            <span class="status-badge ${step.status === 'success' ? 'status-success' :
+                                                    step.status === 'failed' ? 'status-error' : 'status-warning'}">
+                                ${statusIcon} ${step.status}
+                            </span>
+                        </div>
+                        <div class="step-meta">
+                            耗时: ${step.latency_ms || 0}ms
+                            ${step.skill_name ? `| Skill: ${step.skill_name}` : ''}
+                        </div>
+                        ${step.missing_slots?.length ? `
+                            <div class="missing-slots">
+                                缺失字段: ${step.missing_slots.join(', ')}
+                            </div>
+                        ` : ''}
+                        ${step.result ? `
+                            <div class="step-result">${String(step.result).substring(0, 200)}</div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            return html;
+        },
+
+        renderResourceTab() {
+            if (!this.lastTestRun?.resource_usage) {
+                return '<p class="empty-text">无资源使用数据</p>';
+            }
+
+            const resources = this.lastTestRun.resource_usage;
+            let html = '<div class="resource-grid">';
+
+            // Intent
+            if (resources.intents?.length) {
+                html += this.renderResourceCard('意图', resources.intents.map(i => ({
+                    name: i.name,
+                    status: i.status,
+                    details: `置信度 ${(i.confidence * 100).toFixed(0)}%`,
+                })));
+            }
+
+            // Skills
+            if (resources.skills?.length) {
+                html += this.renderResourceCard('Skill', resources.skills.map(s => ({
+                    name: s.name,
+                    status: s.status,
+                    details: s.not_called_reason || (s.called ? '已调用' : '未调用'),
+                })));
+            }
+
+            // Knowledge
+            if (resources.knowledge?.length) {
+                html += this.renderResourceCard('知识库', resources.knowledge.map(k => ({
+                    name: k.name || '—',
+                    status: k.status,
+                    details: k.hit_count ? `命中 ${k.hit_count} 条` : '无命中',
+                })));
+            }
+
+            // Policies
+            if (resources.policies?.length) {
+                html += this.renderResourceCard('策略检查', resources.policies.map(p => ({
+                    name: p.name,
+                    status: p.passed ? 'used' : 'failed',
+                    details: p.details || (p.passed ? '通过' : '未通过'),
+                })));
+            }
+
+            html += '</div>';
+            return html;
+        },
+
+        renderResourceCard(title, items) {
+            let html = `
+                <div class="resource-card">
+                    <div class="resource-card-title">${title}</div>
+            `;
+
+            items.forEach(item => {
+                const statusClass = item.status === 'used' ? 'status-success' :
+                                   item.status === 'not_used' ? 'status-warning' : 'status-error';
+                const statusText = item.status === 'used' ? '已使用' :
+                                  item.status === 'not_used' ? '未使用' : '失败';
+
+                html += `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+                        <code style="font-size: 0.75rem;">${item.name}</code>
+                        <span class="resource-card-status ${statusClass}">${statusText}</span>
+                    </div>
+                    <div style="font-size: 0.7rem; color: var(--text-muted);">${item.details}</div>
+                `;
+            });
+
+            html += '</div>';
+            return html;
+        },
+
+        renderPromptTab() {
+            if (!this.lastTestRun?.resource_usage?.prompt_fragments?.length) {
+                return `
+                    <div class="prompt-preview">
+                        <p style="color: var(--text-muted);">无 Prompt 数据</p>
+                    </div>
+                `;
+            }
+
+            let html = '<div class="prompt-preview">';
+
+            this.lastTestRun.resource_usage.prompt_fragments.forEach(p => {
+                const statusClass = p.status === 'used' ? 'status-success' : 'status-warning';
+                const statusText = p.status === 'used' ? '✓ 已使用' : '✗ 未使用';
+                html += `
+                    <div class="prompt-line">
+                        <span class="prompt-type">${p.name}</span>
+                        <span style="color: var(--text-muted);">${p.version || 'current'}</span>
+                        <span style="color: var(--text-muted);">${p.tokens || 0} tokens</span>
+                        <span class="prompt-status ${statusClass}">${statusText}</span>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            return html;
+        },
+
+        renderCallLogTab() {
+            if (!this.lastTestRun?.tool_calls?.length) {
+                return `
+                    <div style="padding: 1rem; background: var(--surface-secondary); border-radius: 8px;">
+                        <p style="color: var(--text-muted);">无工具调用记录</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">
+                            当前对话未触发任何工具调用。
+                            ${this.lastDecision === 'slot_missing' ? '原因：缺少必要字段。' : ''}
+                        </p>
+                    </div>
+                `;
+            }
+
+            let html = '';
+
+            this.lastTestRun.tool_calls.forEach(call => {
+                const statusClass = call.status === 'success' ? 'status-success' :
+                                   call.status === 'error' ? 'status-error' : 'status-warning';
+                html += `
+                    <div style="margin-bottom: 1rem; padding: 1rem; background: var(--surface-secondary); border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                            <strong>${call.skill_name}</strong>
+                            <span class="status-badge ${statusClass}">${call.status}</span>
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">
+                            Tool: ${call.tool_name} | 耗时: ${call.latency_ms}ms
+                        </div>
+                        ${Object.keys(call.input_data || {}).length ? `
+                            <details style="margin-top: 0.5rem;">
+                                <summary style="cursor: pointer; font-size: 0.8rem;">输入数据</summary>
+                                <pre style="background: var(--surface-tertiary); padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;">${JSON.stringify(call.input_data, null, 2)}</pre>
+                            </details>
+                        ` : ''}
+                        ${call.output_data ? `
+                            <details style="margin-top: 0.5rem;">
+                                <summary style="cursor: pointer; font-size: 0.8rem;">输出数据</summary>
+                                <pre style="background: var(--surface-tertiary); padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;">${JSON.stringify(call.output_data, null, 2)}</pre>
+                            </details>
+                        ` : ''}
+                        ${call.error_message ? `
+                            <div style="color: #ef4444; font-size: 0.8rem; margin-top: 0.5rem;">
+                                Error: ${call.error_message}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            return html;
+        },
+
+        renderTraceTab() {
+            if (!this.lastTestRun) {
+                return '<p class="empty-text">无 Trace 数据</p>';
+            }
+
+            const traceData = JSON.stringify(this.lastTestRun, null, 2);
+
+            return `
+                <div class="trace-actions">
+                    <button class="copy-btn" onclick="navigator.clipboard.writeText(\`${traceData.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)">
+                        复制 Trace
+                    </button>
+                </div>
+                <pre class="trace-json">${this.syntaxHighlight(traceData)}</pre>
+            `;
+        },
+
+        syntaxHighlight(json) {
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                let cls = 'number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'key';
+                    } else {
+                        cls = 'string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'null';
+                }
+                return '<span style="color: ' + {
+                    'key': '#93c5fd',
+                    'string': '#86efac',
+                    'number': '#fcd34d',
+                    'boolean': '#f9a8d4',
+                    'null': '#94a3b8'
+                }[cls] + ';">' + match + '</span>';
+            });
+        },
+    };
+}
+</script>

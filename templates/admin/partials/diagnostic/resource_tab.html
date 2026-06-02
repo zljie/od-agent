@@ -1,0 +1,94 @@
+<!-- 资源使用 Tab -->
+{% if resource_usage %}
+<div class="resource-grid">
+    {% if resource_usage.intents %}
+    <div class="resource-card">
+        <div class="resource-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+            意图
+        </div>
+        {% for intent in resource_usage.intents %}
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+            <code style="font-size: 0.75rem;">{{ intent.name }}</code>
+            <span class="resource-card-status {% if intent.status == 'used' %}status-success{% else %}status-warning{% endif %}">
+                {{ '已使用' if intent.status == 'used' else '未使用' }}
+            </span>
+        </div>
+        <div style="font-size: 0.7rem; color: var(--text-muted);">
+            置信度 {{ (intent.confidence * 100)|round(0) }}%
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if resource_usage.skills %}
+    <div class="resource-card">
+        <div class="resource-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                <polyline points="2 17 12 22 22 17"/>
+                <polyline points="2 12 12 17 22 12"/>
+            </svg>
+            Skill
+        </div>
+        {% for skill in resource_usage.skills %}
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+            <code style="font-size: 0.75rem;">{{ skill.name }}</code>
+            <span class="resource-card-status {% if skill.status == 'used' %}status-success{% elif skill.status == 'not_used' %}status-warning{% else %}status-error{% endif %}">
+                {{ '已调用' if skill.called else '未调用' }}
+            </span>
+        </div>
+        <div style="font-size: 0.7rem; color: var(--text-muted);">
+            {{ skill.not_called_reason or (skill.details if skill.details else '—') }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if resource_usage.knowledge %}
+    <div class="resource-card">
+        <div class="resource-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+            知识库
+        </div>
+        {% for knowledge in resource_usage.knowledge %}
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+            <code style="font-size: 0.75rem;">{{ knowledge.name or '—' }}</code>
+            <span class="resource-card-status {% if knowledge.status == 'used' %}status-success{% else %}status-warning{% endif %}">
+                {{ '已使用' if knowledge.status == 'used' else '未使用' }}
+            </span>
+        </div>
+        <div style="font-size: 0.7rem; color: var(--text-muted);">
+            {% if knowledge.hit_count %}命中 {{ knowledge.hit_count }} 条{% else %}无命中{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if resource_usage.policies %}
+    <div class="resource-card">
+        <div class="resource-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            策略检查
+        </div>
+        {% for policy in resource_usage.policies %}
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+            <code style="font-size: 0.75rem;">{{ policy.name }}</code>
+            <span class="resource-card-status {% if policy.passed %}status-success{% else %}status-error{% endif %}">
+                {{ '通过' if policy.passed else '未通过' }}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% else %}
+<p class="empty-text">无资源使用数据</p>
+{% endif %}

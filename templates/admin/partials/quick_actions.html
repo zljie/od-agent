@@ -1,0 +1,122 @@
+<!-- 快捷操作卡片 -->
+<div class="right-card">
+    <div class="right-card-title">快捷操作</div>
+    <div class="quick-actions">
+        <button class="quick-action-btn" onclick="runAnotherTest()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            再次测试
+        </button>
+        <button class="quick-action-btn" onclick="viewTestCases()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+            查看历史测试
+        </button>
+        <button class="quick-action-btn" onclick="saveAsTestCase()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+                <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            保存为测试用例
+        </button>
+        <button class="quick-action-btn" onclick="navigateToSection('intent_routes')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+            进入意图配置
+        </button>
+        <button class="quick-action-btn" onclick="navigateToSection('skills')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                <polyline points="2 17 12 22 22 17"/>
+                <polyline points="2 12 12 17 22 12"/>
+            </svg>
+            进入 Skill 配置
+        </button>
+        <button class="quick-action-btn" onclick="navigateToSection('prompt')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            进入 Prompt 配置
+        </button>
+    </div>
+</div>
+
+<script>
+// Global functions for quick actions
+function runAnotherTest() {
+    navigateToSection('test_diagnostic');
+    // Focus on the test input
+    setTimeout(() => {
+        const input = document.getElementById('testMessage');
+        if (input) input.focus();
+    }, 100);
+}
+
+function viewTestCases() {
+    navigateToSection('test_cases');
+}
+
+function saveAsTestCase() {
+    // Get the diagnostic section component
+    const diagnosticSection = document.querySelector('[x-data="testDiagnosticSection()"]');
+    if (diagnosticSection && diagnosticSection.__x) {
+        diagnosticSection.__x.$data.saveAsCase();
+    }
+}
+
+function navigateToSection(section) {
+    const ws = document.querySelector('[x-data="adminWorkspace()"]');
+    if (ws && ws.__x) {
+        ws.__x.$data.activeSection = section;
+        htmx.ajax('GET', `/admin/agents/1/sections/${section}`, {
+            target: '#main-panel',
+            swap: 'innerHTML',
+        });
+    }
+}
+</script>
+
+<style>
+.quick-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.quick-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+}
+
+.quick-action-btn:hover {
+    background: var(--surface-secondary);
+    border-color: var(--brand-color);
+    color: var(--brand-color);
+}
+
+.quick-action-btn svg {
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.quick-action-btn:hover svg {
+    opacity: 1;
+}
+</style>

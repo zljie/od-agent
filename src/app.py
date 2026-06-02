@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from .agent import CustomerServiceAgent, get_agent, load_agent_config, reload_agent, save_agent_config
+from .diagnostics import DiagnosticsCollector
 from .models import ModelConfig, get_model_config
 from .skills import get_skill_manager, reload_skill_manager
 from .llm_providers import provider_catalog
@@ -362,69 +363,250 @@ def create_app() -> FastAPI:
         """Get LLM provider catalog with all vendors and their models."""
         return {"providers": provider_catalog()}
 
-    # Intent Routing Endpoints
+    # ── Intent Routing Service (New Comprehensive API) ────────────────────────
+
+    from .intent_routing_service import (
+        load_intents,
+        create_intent,
+        get_intent,
+        update_intent,
+        delete_intent,
+        get_intent_stats,
+        test_routing,
+        run_diagnostics,
+        load_diagnostics,
+        add_example,
+        remove_example,
+        add_slot,
+        update_slot,
+        remove_slot,
+        add_test_case,
+        remove_test_case,
+        get_publish_check,
+    )
+
+    # Intent Routing Endpoints (New Comprehensive API)
+    @app.get("/intent-routing/intents")
+    async def get_intents_routing():
+        """Get all intents with full configuration."""
+        intents = load_intents()
+        return {"intents": intents, "stats": get_intent_stats()}
+
+    @app.post("/intent-routing/intents")
+    async def create_intent_routing(request: Request):
+        """Create a new intent."""
+        body = await request.json()
+        intent = create_intent(body)
+        return {"status": "success", "intent": intent}
+
+    @app.get("/intent-routing/intents/{intent_id}")
+    async def get_intent_routing(intent_id: str):
+        """Get a specific intent by ID."""
+        intent = get_intent(intent_id)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent not found")
+        return intent
+
+    @app.put("/intent-routing/intents/{intent_id}")
+    async def update_intent_routing(intent_id: str, request: Request):
+        """Update an existing intent."""
+        body = await request.json()
+        intent = update_intent(intent_id, body)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent not found")
+        return {"status": "success", "intent": intent}
+
+    @app.delete("/intent-routing/intents/{intent_id}")
+    async def delete_intent_routing(intent_id: str):
+        """Delete an intent."""
+        success = delete_intent(intent_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Intent not found")
+        return {"status": "success", "message": "Intent deleted"}
+
+    @app.get("/intent-routing/stats")
+    async def get_intent_routing_stats():
+        """Get intent routing statistics."""
+        return get_intent_stats()
+
+    # Quick Routing Test
+    @app.post("/intent-routing/test")
+    async def test_routing_endpoint(request: Request):
+        """Test routing for a user message."""
+        body = await request.json()
+        message = body.get("message", "")
+        user_profile = body.get("user_profile", "normal_user")
+
+        if not message:
+            raise HTTPException(status_code=400, detail="message is required")
+
+        result = test_routing(message, user_profile)
+        return result
+
+    # Diagnostics
+    @app.get("/intent-routing/diagnose")
+    async def diagnose_intents():
+        """Run diagnostics on all intents."""
+        return run_diagnostics()
+
+    @app.get("/intent-routing/diagnostics")
+    async def get_diagnostics():
+        """Get latest diagnostics result."""
+        return load_diagnostics()
+
+    @app.post("/intent-routing/diagnose")
+    async def run_diagnostics_endpoint():
+        """Force run diagnostics."""
+        return run_diagnostics()
+
+    # Example Management
+    @app.post("/intent-routing/intents/{intent_id}/examples")
+    async def add_intent_example(intent_id: str, request: Request):
+        """Add an example to an intent."""
+        body = await request.json()
+        example_type = body.get("type")
+        text = body.get("text")
+
+        if not example_type or not text:
+            raise HTTPException(status_code=400, detail="type and text are required")
+
+        intent = add_example(intent_id, example_type, text)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent not found")
+
+        return {"status": "success", "intent": intent}
+
+    @app.delete("/intent-routing/intents/{intent_id}/examples")
+    async def remove_intent_example(intent_id: str, request: Request):
+        """Remove an example from an intent."""
+        body = await request.json()
+        example_type = body.get("type")
+        text = body.get("text")
+
+        if not example_type or not text:
+            raise HTTPException(status_code=400, detail="type and text are required")
+
+        intent = remove_example(intent_id, example_type, text)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent not found")
+
+        return {"status": "success", "intent": intent}
+
+    # Slot Management
+    @app.post("/intent-routing/intents/{intent_id}/slots")
+    async def add_intent_slot(intent_id: str, request: Request):
+        """Add a slot to an intent."""
+        body = await request.json()
+        intent = add_slot(intent_id, body)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent not found")
+        return {"status": "success", "intent": intent}
+
+    @app.put("/intent-routing/intents/{intent_id}/slots/{slot_id}")
+    async def update_intent_slot(intent_id: str, slot_id: str, request: Request):
+        """Update a slot in an intent."""
+        body = await request.json()
+        intent = update_slot(intent_id, slot_id, body)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent not found")
+        return {"status": "success", "intent": intent}
+
+    @app.delete("/intent-routing/intents/{intent_id}/slots/{slot_id}")
+    async def remove_intent_slot(intent_id: str, slot_id: str):
+        """Remove a slot from an intent."""
+        intent = remove_slot(intent_id, slot_id)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent or slot not found")
+        return {"status": "success", "intent": intent}
+
+    # Test Case Management
+    @app.post("/intent-routing/intents/{intent_id}/test-cases")
+    async def add_intent_test_case(intent_id: str, request: Request):
+        """Add a test case to an intent."""
+        body = await request.json()
+        intent = add_test_case(intent_id, body)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent not found")
+        return {"status": "success", "intent": intent}
+
+    @app.delete("/intent-routing/intents/{intent_id}/test-cases/{case_id}")
+    async def remove_intent_test_case(intent_id: str, case_id: str):
+        """Remove a test case from an intent."""
+        intent = remove_test_case(intent_id, case_id)
+        if not intent:
+            raise HTTPException(status_code=404, detail="Intent or test case not found")
+        return {"status": "success", "intent": intent}
+
+    # Publish Check
+    @app.get("/intent-routing/publish-check")
+    async def get_intent_publish_check():
+        """Run pre-publish checks on intents."""
+        return get_publish_check()
+
+    # Legacy Intent Routing Endpoints (Backward Compatible)
     @app.get("/intents")
     async def get_intents():
-        """Get all intent routing rules."""
-        return load_intent_config()
+        """Get all intent routing rules (legacy)."""
+        intents = load_intents()
+        return intents
 
     @app.post("/intents")
     async def add_intent(intent: dict):
-        """Add a new intent routing rule."""
-        intents = load_intent_config()
-        intents.append(intent)
-        save_intent_config(intents)
-        return {"status": "success", "message": "Intent added"}
+        """Add a new intent routing rule (legacy)."""
+        intent = create_intent(intent)
+        return {"status": "success", "message": "Intent added", "intent": intent}
 
     @app.get("/intents/{index}")
-    async def get_intent(index: int):
-        """Get a specific intent by index."""
-        intents = load_intent_config()
+    async def get_intent_by_index(index: int):
+        """Get a specific intent by index (legacy)."""
+        intents = load_intents()
         if index < 0 or index >= len(intents):
             raise HTTPException(status_code=404, detail="Intent not found")
         return intents[index]
 
     @app.put("/intents/{index}")
-    async def update_intent(index: int, intent: dict):
-        """Update an intent routing rule."""
-        intents = load_intent_config()
+    async def update_intent_by_index(index: int, intent: dict):
+        """Update an intent routing rule by index (legacy)."""
+        intents = load_intents()
         if index < 0 or index >= len(intents):
             raise HTTPException(status_code=404, detail="Intent not found")
-        intents[index] = intent
-        save_intent_config(intents)
+        old_intent = intents[index]
+        updated = update_intent(old_intent.get("id"), intent)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Intent not found")
         return {"status": "success", "message": "Intent updated"}
 
     @app.delete("/intents/{index}")
-    async def delete_intent(index: int):
-        """Delete an intent routing rule."""
-        intents = load_intent_config()
+    async def delete_intent_by_index(index: int):
+        """Delete an intent routing rule by index (legacy)."""
+        intents = load_intents()
         if index < 0 or index >= len(intents):
             raise HTTPException(status_code=404, detail="Intent not found")
-        intents.pop(index)
-        save_intent_config(intents)
+        deleted = delete_intent(intents[index].get("id"))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Intent not found")
         return {"status": "success", "message": "Intent deleted"}
 
     @app.post("/intents/detect")
     async def detect_intent(request: dict):
-        """Detect intent from user message."""
+        """Detect intent from user message (legacy)."""
         message = request.get("message", "")
-        intents = load_intent_config()
-        
-        # Sort by priority (higher first)
-        sorted_intents = sorted(intents, key=lambda x: x.get("priority", 10), reverse=True)
-        
-        for intent in sorted_intents:
-            keywords = intent.get("keywords", [])
-            for keyword in keywords:
-                if keyword.lower() in message.lower():
-                    return {
-                        "detected": True,
-                        "intent": intent.get("name"),
-                        "handler": intent.get("handler"),
-                        "matched_keyword": keyword
-                    }
-        
+        result = test_routing(message)
+        if result.get("selected_intent"):
+            return {
+                "detected": True,
+                "intent": result["selected_intent"],
+                "handler": result.get("route_target"),
+                "confidence": result.get("confidence"),
+            }
         return {"detected": False, "intent": None, "handler": None}
+
+    @app.post("/intents/test")
+    async def test_intent_routing(request: dict):
+        """Test intent routing (legacy)."""
+        message = request.get("message", "")
+        user_profile = request.get("user_profile", "normal_user")
+        return test_routing(message, user_profile)
 
     # Skills Management Endpoints
     @app.get("/skills")
@@ -550,10 +732,12 @@ def create_app() -> FastAPI:
             "basic": "admin/sections/basic.html",
             "model": "admin/sections/model.html",
             "prompt": "admin/sections/prompt.html",
-            "intent_routes": "admin/sections/intent_routes.html",
+            "intent_routing": "admin/sections/intent_routing.html",
             "skills": "admin/sections/skills.html",
             "semantic": "admin/sections/semantic.html",
             "test_publish": "admin/sections/test_publish.html",
+            "test_diagnostic": "admin/sections/test_diagnostic.html",
+            "test_cases": "admin/sections/test_cases.html",
         }
         tmpl_path = section_map.get(section, "admin/sections/basic.html")
         tmpl = _jinja_env.get_template(tmpl_path)
@@ -724,6 +908,370 @@ def create_app() -> FastAPI:
         agent = get_agent()
         response = await agent.chat(message)
         return {"status": "success", "response": response}
+
+    # ── Diagnostics & Test Runs ──────────────────────────────────────────────
+
+    @app.post("/admin/agents/{agent_id}/test-runs")
+    async def create_test_run(request: Request, agent_id: str):
+        """Run a test with full diagnostics collection.
+
+        Returns the complete test run with:
+        - Agent response
+        - Intent classification trace
+        - Task plan steps
+        - Resource usage
+        - Tool call traces
+        - Evaluation result and suggestions
+        """
+        from .diagnostics import DiagnosticsCollector
+
+        body = await request.json() or {}
+        message = body.get("message", "")
+        scenario_id = body.get("scenario_id", "")
+
+        if not message:
+            return {"status": "error", "message": "message is required"}
+
+        agent = get_agent()
+        diagnostics = DiagnosticsCollector(agent_id=agent_id, agent_version="draft")
+
+        result = await agent.chat_with_diagnostics(
+            user_input=message,
+            scenario_id=scenario_id,
+            diagnostics=diagnostics,
+        )
+
+        test_run = result["test_run"]
+
+        return {
+            "status": "success",
+            "response": result["response"],
+            "decision": result["decision"],
+            "test_run": test_run.to_dict(),
+        }
+
+    @app.get("/admin/agents/{agent_id}/test-runs")
+    async def list_test_runs(request: Request, agent_id: str, limit: int = 20, offset: int = 0):
+        """Get history of test runs."""
+        from .diagnostics import TestCaseManager
+
+        tcm = TestCaseManager()
+        runs = tcm.list_cases(agent_id)
+        runs_data = [r.to_dict() for r in runs[offset:offset + limit]]
+
+        return {
+            "total": len(runs),
+            "test_runs": runs_data,
+        }
+
+    @app.get("/admin/agents/{agent_id}/test-runs/{run_id}")
+    async def get_test_run(request: Request, agent_id: str, run_id: str):
+        """Get detailed information for a specific test run."""
+        from pathlib import Path
+
+        storage_dir = Path("data/test_runs")
+        file_path = storage_dir / f"{run_id}.json"
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Test run not found")
+
+        import json
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        return data
+
+    @app.post("/admin/agents/{agent_id}/test-runs/{run_id}/save-as-case")
+    async def save_test_run_as_case(request: Request, agent_id: str, run_id: str):
+        """Save a test run as a reusable test case."""
+        from .diagnostics import TestCaseManager
+
+        body = await request.json() or {}
+        name = body.get("name", f"用例_{datetime.now().strftime('%m%d_%H%M')}")
+        expected_intent = body.get("expected_intent", "")
+
+        storage_dir = Path("data/test_runs")
+        file_path = storage_dir / f"{run_id}.json"
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Test run not found")
+
+        import json
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        tcm = TestCaseManager()
+        test_case = tcm.create_from_test_run(
+            agent_id=agent_id,
+            test_run_id=run_id,
+            input_text=data.get("input", ""),
+            expected_intent=expected_intent,
+            name=name,
+        )
+
+        return {
+            "status": "success",
+            "test_case": test_case.to_dict(),
+        }
+
+    @app.post("/admin/agents/{agent_id}/release-check")
+    async def release_check(request: Request, agent_id: str):
+        """Run pre-release checks on the agent configuration.
+
+        Checks:
+        - Basic info completeness
+        - Model configuration validity
+        - Prompt configuration
+        - Intent routing setup
+        - Skill availability
+        - Risk/policy checks
+        """
+        from .skills import get_skill_manager
+
+        config = load_agent_config()
+        checks = []
+
+        # Check 1: Basic info
+        basic_checks = {
+            "name": "基础信息完整",
+            "description": "Agent Name、描述、场景是否完整",
+            "status": "pass",
+        }
+        if not config.get("agent_name"):
+            basic_checks["status"] = "fail"
+        checks.append(basic_checks)
+
+        # Check 2: Model config
+        model_checks = {
+            "name": "模型配置可用",
+            "description": "Provider / Model / API 状态是否正常",
+            "status": "pass",
+        }
+        model_cfg = config.get("model_config", {})
+        if not model_cfg.get("model_name"):
+            model_checks["status"] = "fail"
+        checks.append(model_checks)
+
+        # Check 3: Prompt
+        prompt_checks = {
+            "name": "Prompt 已配置",
+            "description": "是否存在有效 System Prompt",
+            "status": "pass",
+        }
+        if not config.get("system_prompt"):
+            prompt_checks["status"] = "fail"
+        checks.append(prompt_checks)
+
+        # Check 4: Intent routing
+        intent_checks = {
+            "name": "意图路由有效",
+            "description": "是否至少配置一个启用意图",
+            "status": "pass",
+        }
+        intents = load_intent_config()
+        if not intents:
+            intent_checks["status"] = "warning"
+        checks.append(intent_checks)
+
+        # Check 5: Skills
+        skill_checks = {
+            "name": "Skill 可用",
+            "description": "选中 Skill 是否通过测试",
+            "status": "pass",
+        }
+        skill_manager = get_skill_manager()
+        skills = skill_manager.get_all_skills()
+        if not skills:
+            skill_checks["status"] = "warning"
+            skill_checks["description"] = "无可用 Skill"
+        checks.append(skill_checks)
+
+        # Check 6: Risk/policy
+        risk_checks = {
+            "name": "风险检查",
+            "description": "是否存在敏感配置或高风险输出",
+            "status": "pass",
+        }
+        checks.append(risk_checks)
+
+        # Calculate overall status
+        failed_checks = [c for c in checks if c["status"] == "fail"]
+        warning_checks = [c for c in checks if c["status"] == "warning"]
+
+        overall_status = "pass"
+        if failed_checks:
+            overall_status = "fail"
+        elif warning_checks:
+            overall_status = "warning"
+
+        return {
+            "status": overall_status,
+            "checks": checks,
+            "summary": {
+                "total": len(checks),
+                "passed": len([c for c in checks if c["status"] == "pass"]),
+                "failed": len(failed_checks),
+                "warnings": len(warning_checks),
+            },
+        }
+
+    # ── Test Case Management ─────────────────────────────────────────────────
+
+    @app.get("/admin/agents/{agent_id}/test-cases")
+    async def list_test_cases(
+        request: Request,
+        agent_id: str,
+        scenario_id: Optional[str] = None,
+        status: Optional[str] = None,
+    ):
+        """List all test cases for an agent."""
+        from .diagnostics import TestCaseManager
+
+        tcm = TestCaseManager()
+        cases = tcm.list_cases(agent_id, scenario_id=scenario_id, status=status)
+
+        return {
+            "total": len(cases),
+            "test_cases": [c.to_dict() for c in cases],
+        }
+
+    @app.post("/admin/agents/{agent_id}/test-cases")
+    async def create_test_case(request: Request, agent_id: str):
+        """Create a new test case."""
+        from .diagnostics import TestCaseManager
+
+        body = await request.json() or {}
+        tcm = TestCaseManager()
+
+        test_case = tcm.create_case(
+            agent_id=agent_id,
+            name=body.get("name", ""),
+            input_text=body.get("input", ""),
+            description=body.get("description", ""),
+            scenario_id=body.get("scenario_id", ""),
+            user_profile=body.get("user_profile", ""),
+            expected_intent=body.get("expected_intent", ""),
+            expected_skill=body.get("expected_skill", ""),
+            expected_keywords=body.get("expected_keywords", []),
+        )
+
+        return {
+            "status": "success",
+            "test_case": test_case.to_dict(),
+        }
+
+    @app.get("/admin/agents/{agent_id}/test-cases/{case_id}")
+    async def get_test_case(request: Request, agent_id: str, case_id: str):
+        """Get a specific test case."""
+        from .diagnostics import TestCaseManager
+
+        tcm = TestCaseManager()
+        test_case = tcm.get_case(agent_id, case_id)
+
+        if not test_case:
+            raise HTTPException(status_code=404, detail="Test case not found")
+
+        return test_case.to_dict()
+
+    @app.put("/admin/agents/{agent_id}/test-cases/{case_id}")
+    async def update_test_case(request: Request, agent_id: str, case_id: str):
+        """Update a test case."""
+        from .diagnostics import TestCaseManager
+
+        body = await request.json() or {}
+        tcm = TestCaseManager()
+        test_case = tcm.update_case(agent_id, case_id, body)
+
+        if not test_case:
+            raise HTTPException(status_code=404, detail="Test case not found")
+
+        return {
+            "status": "success",
+            "test_case": test_case.to_dict(),
+        }
+
+    @app.delete("/admin/agents/{agent_id}/test-cases/{case_id}")
+    async def delete_test_case(request: Request, agent_id: str, case_id: str):
+        """Delete a test case."""
+        from .diagnostics import TestCaseManager
+
+        tcm = TestCaseManager()
+        deleted = tcm.delete_case(agent_id, case_id)
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Test case not found")
+
+        return {"status": "success", "message": "Test case deleted"}
+
+    @app.post("/admin/agents/{agent_id}/test-cases/{case_id}/run")
+    async def run_test_case(request: Request, agent_id: str, case_id: str):
+        """Run a single test case."""
+        from .diagnostics import TestCaseManager, DiagnosticsCollector
+
+        tcm = TestCaseManager()
+        test_case = tcm.get_case(agent_id, case_id)
+
+        if not test_case:
+            raise HTTPException(status_code=404, detail="Test case not found")
+
+        agent = get_agent()
+        diagnostics = DiagnosticsCollector(agent_id=agent_id)
+
+        result = await agent.chat_with_diagnostics(
+            user_input=test_case.input,
+            diagnostics=diagnostics,
+        )
+
+        test_run = result["test_run"]
+
+        return {
+            "status": "success",
+            "test_run": test_run.to_dict(),
+            "response": result["response"],
+        }
+
+    # ── Batch Eval ───────────────────────────────────────────────────────────
+
+    @app.post("/admin/agents/{agent_id}/eval/batch")
+    async def run_batch_eval(request: Request, agent_id: str):
+        """Run batch evaluation on multiple test cases."""
+        from .diagnostics import AgentEval, TestCaseManager
+
+        body = await request.json() or {}
+        case_ids = body.get("case_ids", [])
+        run_mode = body.get("run_mode", "sequential")
+
+        if not case_ids:
+            raise HTTPException(status_code=400, detail="case_ids is required")
+
+        tcm = TestCaseManager()
+        agent_eval = AgentEval(test_case_manager=tcm)
+
+        async def executor(msg: str):
+            agent = get_agent()
+            return await agent.chat(msg)
+
+        batch_result = await agent_eval.run_batch(
+            agent_id=agent_id,
+            case_ids=case_ids,
+            run_mode=run_mode,
+            agent_executor=executor,
+        )
+
+        return batch_result.to_dict()
+
+    @app.get("/admin/agents/{agent_id}/eval/batch/{batch_id}")
+    async def get_batch_result(request: Request, agent_id: str, batch_id: str):
+        """Get batch evaluation result."""
+        from .diagnostics import AgentEval
+
+        agent_eval = AgentEval()
+        result = agent_eval.get_batch_result(batch_id)
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Batch result not found")
+
+        return result.to_dict()
 
     @app.get("/admin/agents/{agent_id}/summary", response_class=HTMLResponse)
     async def agent_summary(request: Request, agent_id: str):

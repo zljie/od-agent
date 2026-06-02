@@ -1,0 +1,136 @@
+<!-- 配置建议卡片 -->
+<div class="right-card" x-data="configSuggestions()" x-show="suggestions.length > 0">
+    <div class="right-card-title">配置建议</div>
+
+    <template x-for="(suggestion, index) in suggestions" :key="suggestion.id">
+        <div class="suggestion-item" :style="index > 0 ? 'margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-soft);' : ''">
+            <div class="suggestion-header">
+                <span class="suggestion-priority" :class="'priority-' + suggestion.priority" x-text="'P' + suggestion.priority"></span>
+                <span class="suggestion-category" x-text="getCategoryLabel(suggestion.category)"></span>
+            </div>
+            <div class="suggestion-title" x-text="suggestion.title"></div>
+            <div class="suggestion-description" x-text="suggestion.description"></div>
+            <button x-show="suggestion.actionable"
+                    class="suggestion-action"
+                    @click="navigateToConfig(suggestion)">
+                前往配置
+            </button>
+        </div>
+    </template>
+
+    <div x-show="suggestions.length === 0" class="no-suggestions">
+        <p>当前配置状态良好，暂无建议。</p>
+    </div>
+</div>
+
+<script>
+function configSuggestions() {
+    return {
+        suggestions: [],
+
+        setSuggestions(suggestionList) {
+            this.suggestions = suggestionList || [];
+        },
+
+        getCategoryLabel(category) {
+            const labels = {
+                'intent': '意图配置',
+                'slot_handling': '字段处理',
+                'skill': 'Skill配置',
+                'knowledge': '知识检索',
+                'prompt': 'Prompt优化',
+                'policy': '策略配置',
+            };
+            return labels[category] || category;
+        },
+
+        navigateToConfig(suggestion) {
+            const sectionMap = {
+                'intent': 'intent_routes',
+                'slot_handling': 'intent_routes',
+                'skill': 'skills',
+                'knowledge': 'semantic',
+                'prompt': 'prompt',
+                'policy': 'basic',
+            };
+
+            const section = sectionMap[suggestion.category] || 'basic';
+            const ws = document.querySelector('[x-data]');
+            if (ws && ws.__x) {
+                ws.__x.$data.activeSection = section;
+                htmx.ajax('GET', `/admin/agents/1/sections/${section}`, {
+                    target: '#main-panel',
+                    swap: 'innerHTML',
+                });
+            }
+        },
+    };
+}
+</script>
+
+<style>
+.suggestion-item {
+    padding: 0.5rem 0;
+}
+
+.suggestion-header {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+}
+
+.suggestion-priority {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.priority-1 { background: #fee2e2; color: #991b1b; }
+.priority-2 { background: #fef3c7; color: #92400e; }
+.priority-3 { background: #dbeafe; color: #1e40af; }
+.priority-4 { background: #f3f4f6; color: #6b7280; }
+
+.suggestion-category {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    padding: 1px 6px;
+    background: var(--surface-secondary);
+    border-radius: 3px;
+}
+
+.suggestion-title {
+    font-weight: 600;
+    font-size: 0.8rem;
+    margin-bottom: 0.25rem;
+    color: var(--text-primary);
+}
+
+.suggestion-description {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.suggestion-action {
+    margin-top: 0.5rem;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.7rem;
+    background: var(--surface-secondary);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--brand-color);
+}
+
+.suggestion-action:hover {
+    background: var(--surface-tertiary);
+}
+
+.no-suggestions {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 0.5rem 0;
+}
+</style>

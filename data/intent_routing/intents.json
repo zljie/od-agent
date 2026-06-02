@@ -1,0 +1,345 @@
+[
+  {
+    "id": "intent_order_query",
+    "name": "order_query",
+    "display_name": "订单查询",
+    "description": "用户希望查询订单状态、发货进度或物流位置",
+    "status": "enabled",
+    "priority": 90,
+    "domain": "order_service",
+    "route_type": "skill",
+    "route_target": "order_lookup_skill",
+    "fallback_action": "ask_missing_slot",
+    "failure_action": "human_handoff",
+    "semantic_enabled": true,
+    "keyword_boost_enabled": true,
+    "regex_enabled": false,
+    "include_keywords": ["订单", "发货", "物流", "快递", "到哪", "状态", "查询", "什么时候"],
+    "exclude_keywords": ["退货", "退款", "投诉", "转人工"],
+    "positive_examples": [
+      "我的订单到哪了？",
+      "帮我查一下订单状态",
+      "订单什么时候发货？",
+      "我买的东西还没到",
+      "订单已经付款了，什么时候处理？",
+      "查一下快递到哪了",
+      "我的包裹发出去了吗"
+    ],
+    "negative_examples": [
+      "我要退货",
+      "我要退款",
+      "我要改收货地址",
+      "这个商品多少钱",
+      "转人工客服"
+    ],
+    "edge_examples": [
+      "我的快递怎么还没到？",
+      "为什么还没有物流信息？",
+      "订单发错了怎么办？"
+    ],
+    "slots": [
+      {
+        "id": "slot_order_id",
+        "slot_name": "order_id",
+        "required": true,
+        "required_mode": "one_of",
+        "group": "order_id_or_phone",
+        "source": ["user_input", "session"],
+        "missing_action": "ask",
+        "ask_template": "请提供您的订单号或手机号，我可以帮您查询订单状态。"
+      },
+      {
+        "id": "slot_phone",
+        "slot_name": "phone",
+        "required": true,
+        "required_mode": "one_of",
+        "group": "order_id_or_phone",
+        "source": ["user_input", "profile"],
+        "missing_action": "ask",
+        "ask_template": "请提供您的手机号，我可以帮您查询订单。"
+      }
+    ],
+    "test_cases": [
+      {
+        "id": "tc_order_001",
+        "input": "我的订单到哪了？",
+        "expected_intent": "order_query",
+        "expected_route_target": "order_lookup_skill",
+        "expected_action": "ask_missing_slot",
+        "expected_missing_slots": ["order_id", "phone"],
+        "status": "passed"
+      },
+      {
+        "id": "tc_order_002",
+        "input": "帮我查一下订单状态",
+        "expected_intent": "order_query",
+        "expected_route_target": "order_lookup_skill",
+        "expected_action": "ask_missing_slot",
+        "status": "passed"
+      }
+    ],
+    "conflict": false,
+    "test_failed": false,
+    "created_at": "2026-06-01T10:00:00",
+    "updated_at": "2026-06-01T10:00:00"
+  },
+  {
+    "id": "intent_refund_request",
+    "name": "refund_request",
+    "display_name": "退款申请",
+    "description": "用户希望申请退款",
+    "status": "enabled",
+    "priority": 85,
+    "domain": "order_service",
+    "route_type": "skill",
+    "route_target": "refund_process_skill",
+    "fallback_action": "ask_missing_slot",
+    "failure_action": "human_handoff",
+    "semantic_enabled": true,
+    "keyword_boost_enabled": true,
+    "regex_enabled": false,
+    "include_keywords": ["退款", "退钱", "返还", "取消订单"],
+    "exclude_keywords": ["投诉", "退货", "换货", "转人工"],
+    "positive_examples": [
+      "我要退款",
+      "申请退款",
+      "订单能退吗",
+      "不想要了想退款",
+      "退钱给我"
+    ],
+    "negative_examples": [
+      "我要退货",
+      "商品有问题",
+      "转人工客服"
+    ],
+    "edge_examples": [
+      "我要退货退款",
+      "可以退款吗"
+    ],
+    "slots": [
+      {
+        "id": "slot_refund_order_id",
+        "slot_name": "order_id",
+        "required": true,
+        "source": ["user_input", "session"],
+        "missing_action": "ask",
+        "ask_template": "请提供您要退款的订单号。"
+      },
+      {
+        "id": "slot_refund_reason",
+        "slot_name": "refund_reason",
+        "required": true,
+        "source": ["user_input"],
+        "missing_action": "ask",
+        "ask_template": "请问您退款的原因是什么？"
+      }
+    ],
+    "test_cases": [
+      {
+        "id": "tc_refund_001",
+        "input": "我要退款",
+        "expected_intent": "refund_request",
+        "expected_route_target": "refund_process_skill",
+        "expected_action": "ask_missing_slot",
+        "status": "passed"
+      }
+    ],
+    "conflict": false,
+    "test_failed": false,
+    "created_at": "2026-06-01T10:05:00",
+    "updated_at": "2026-06-01T10:05:00"
+  },
+  {
+    "id": "intent_logistics_tracking",
+    "name": "logistics_tracking",
+    "display_name": "物流追踪",
+    "description": "用户希望追踪快递/物流状态",
+    "status": "enabled",
+    "priority": 98,
+    "domain": "logistics",
+    "route_type": "skill",
+    "route_target": "logistics_tracking_skill",
+    "fallback_action": "ask_missing_slot",
+    "failure_action": "human_handoff",
+    "semantic_enabled": true,
+    "keyword_boost_enabled": true,
+    "regex_enabled": false,
+    "include_keywords": ["快递", "物流", "追踪", "到了", "派送", "签收"],
+    "exclude_keywords": ["订单", "退款", "退货"],
+    "positive_examples": [
+      "快递到哪了？",
+      "查一下物流",
+      "我的快递怎么还没到",
+      "快递什么时候派送",
+      "物流信息更新了吗"
+    ],
+    "negative_examples": [
+      "我要查订单",
+      "申请退款"
+    ],
+    "edge_examples": [
+      "我的订单快递到哪了"
+    ],
+    "slots": [
+      {
+        "id": "slot_tracking_no",
+        "slot_name": "tracking_no",
+        "required": true,
+        "required_mode": "one_of",
+        "group": "tracking_id",
+        "source": ["user_input", "session"],
+        "missing_action": "ask",
+        "ask_template": "请提供快递单号，我可以帮您查询物流信息。"
+      },
+      {
+        "id": "slot_logistics_order_id",
+        "slot_name": "order_id",
+        "required": true,
+        "required_mode": "one_of",
+        "group": "tracking_id",
+        "source": ["user_input", "session"],
+        "missing_action": "ask",
+        "ask_template": "请提供订单号，我可以帮您查询物流信息。"
+      }
+    ],
+    "test_cases": [
+      {
+        "id": "tc_logistics_001",
+        "input": "快递到哪了？",
+        "expected_intent": "logistics_tracking",
+        "expected_route_target": "logistics_tracking_skill",
+        "expected_action": "ask_missing_slot",
+        "status": "passed"
+      }
+    ],
+    "conflict": true,
+    "test_failed": false,
+    "created_at": "2026-06-01T10:10:00",
+    "updated_at": "2026-06-01T10:10:00"
+  },
+  {
+    "id": "intent_human_handoff",
+    "name": "human_handoff",
+    "display_name": "转人工客服",
+    "description": "用户要求转接人工客服",
+    "status": "enabled",
+    "priority": 100,
+    "domain": "service",
+    "route_type": "human_handoff",
+    "route_target": "human_service_queue",
+    "fallback_action": "fixed_reply",
+    "failure_action": "fixed_reply",
+    "semantic_enabled": true,
+    "keyword_boost_enabled": true,
+    "regex_enabled": false,
+    "include_keywords": ["人工", "转人工", "客服", "真人", "活人"],
+    "exclude_keywords": [],
+    "positive_examples": [
+      "转人工",
+      "我要人工服务",
+      "找人工客服",
+      "真人客服",
+      "活人客服"
+    ],
+    "negative_examples": [],
+    "edge_examples": [
+      "你们是机器人吗"
+    ],
+    "slots": [],
+    "test_cases": [
+      {
+        "id": "tc_human_001",
+        "input": "转人工",
+        "expected_intent": "human_handoff",
+        "expected_route_target": "human_service_queue",
+        "expected_action": "executable",
+        "status": "passed"
+      }
+    ],
+    "conflict": false,
+    "test_failed": false,
+    "created_at": "2026-06-01T10:15:00",
+    "updated_at": "2026-06-01T10:15:00"
+  },
+  {
+    "id": "intent_product_info",
+    "name": "product_info",
+    "display_name": "商品咨询",
+    "description": "用户询问商品相关信息",
+    "status": "enabled",
+    "priority": 70,
+    "domain": "product",
+    "route_type": "knowledge_base",
+    "route_target": "product_knowledge_base",
+    "fallback_action": "fixed_reply",
+    "failure_action": "human_handoff",
+    "semantic_enabled": true,
+    "keyword_boost_enabled": false,
+    "regex_enabled": false,
+    "include_keywords": ["价格", "多少钱", "规格", "参数", "型号", "颜色", "尺寸"],
+    "exclude_keywords": ["退货", "退款", "订单", "物流"],
+    "positive_examples": [
+      "这个商品多少钱",
+      "有几种颜色",
+      "规格是什么",
+      "尺寸多大",
+      "还有其他型号吗"
+    ],
+    "negative_examples": [
+      "我要退货",
+      "退款"
+    ],
+    "edge_examples": [],
+    "slots": [
+      {
+        "id": "slot_product_id",
+        "slot_name": "product_id",
+        "required": false,
+        "source": ["user_input", "session"],
+        "missing_action": "skip",
+        "ask_template": ""
+      }
+    ],
+    "test_cases": [],
+    "conflict": false,
+    "test_failed": false,
+    "created_at": "2026-06-01T10:20:00",
+    "updated_at": "2026-06-01T10:20:00"
+  },
+  {
+    "id": "intent_complaint_handling",
+    "name": "complaint_handling",
+    "display_name": "投诉处理",
+    "description": "用户对商品或服务有不满，需要投诉处理",
+    "status": "draft",
+    "priority": 60,
+    "domain": "service",
+    "route_type": "skill",
+    "route_target": "complaint_handler_skill",
+    "fallback_action": "human_handoff",
+    "failure_action": "human_handoff",
+    "semantic_enabled": true,
+    "keyword_boost_enabled": true,
+    "regex_enabled": false,
+    "include_keywords": ["投诉", "不满", "差评", "举报"],
+    "exclude_keywords": ["退货", "退款"],
+    "positive_examples": [
+      "我要投诉",
+      "服务太差了",
+      "给你差评",
+      "太失望了",
+      "举报这个商家"
+    ],
+    "negative_examples": [
+      "我要退货",
+      "申请退款"
+    ],
+    "edge_examples": [],
+    "slots": [],
+    "test_cases": [],
+    "conflict": false,
+    "test_failed": false,
+    "created_at": "2026-06-02T08:00:00",
+    "updated_at": "2026-06-02T08:00:00"
+  }
+]

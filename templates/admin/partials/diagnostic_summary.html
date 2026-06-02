@@ -1,0 +1,188 @@
+<!-- 诊断摘要卡片 -->
+<div class="right-card" x-data="diagnosticSummary()" x-show="lastTestRun">
+    <div class="right-card-title">本轮诊断</div>
+
+    <!-- 总体评分 -->
+    <div class="score-section">
+        <div class="score-label">总体评分</div>
+        <div class="score-value" :class="scoreClass">
+            <span x-text="overallScore"></span> / 100
+        </div>
+        <div class="score-conclusion" x-text="conclusion"></div>
+    </div>
+
+    <!-- 分项评分 -->
+    <div class="score-breakdown">
+        <div class="score-item">
+            <span class="score-item-label">意图命中</span>
+            <span class="score-item-value" :class="intentScoreClass" x-text="intentScoreText"></span>
+        </div>
+        <div class="score-item">
+            <span class="score-item-label">任务链路</span>
+            <span class="score-item-value" :class="planScoreClass" x-text="planScoreText"></span>
+        </div>
+        <div class="score-item">
+            <span class="score-item-label">Skill 调用</span>
+            <span class="score-item-value" :class="skillScoreClass" x-text="skillScoreText"></span>
+        </div>
+        <div class="score-item">
+            <span class="score-item-label">资源使用</span>
+            <span class="score-item-value" :class="resourceScoreClass" x-text="resourceScoreText"></span>
+        </div>
+        <div class="score-item">
+            <span class="score-item-label">风险检查</span>
+            <span class="score-item-value" :class="riskCheckClass" x-text="riskCheckText"></span>
+        </div>
+    </div>
+</div>
+
+<script>
+function diagnosticSummary() {
+    return {
+        lastTestRun: null,
+
+        setTestRun(testRun) {
+            this.lastTestRun = testRun;
+        },
+
+        get overallScore() {
+            return this.lastTestRun?.eval_result?.overall_score || 0;
+        },
+
+        get scoreClass() {
+            const score = this.overallScore;
+            if (score >= 85) return 'score-excellent';
+            if (score >= 70) return 'score-good';
+            if (score >= 50) return 'score-fair';
+            return 'score-poor';
+        },
+
+        get conclusion() {
+            return this.lastTestRun?.eval_result?.overall_conclusion || '—';
+        },
+
+        get intentScore() {
+            return this.lastTestRun?.eval_result?.intent_score || 0;
+        },
+
+        get intentScoreText() {
+            return (this.intentScore * 100).toFixed(0) + '%';
+        },
+
+        get intentScoreClass() {
+            if (this.intentScore >= 0.8) return 'value-high';
+            if (this.intentScore >= 0.5) return 'value-medium';
+            return 'value-low';
+        },
+
+        get planScore() {
+            return this.lastTestRun?.eval_result?.plan_score || 0;
+        },
+
+        get planScoreText() {
+            return this.planScore >= 1 ? '符合预期' : (this.planScore * 100).toFixed(0) + '%';
+        },
+
+        get planScoreClass() {
+            return this.planScore >= 1 ? 'value-high' : 'value-medium';
+        },
+
+        get skillScore() {
+            return this.lastTestRun?.eval_result?.skill_score || 0;
+        },
+
+        get skillScoreText() {
+            if (this.skillScore >= 1) return '已执行';
+            return '未执行';
+        },
+
+        get skillScoreClass() {
+            return this.skillScore >= 1 ? 'value-high' : 'value-warning';
+        },
+
+        get resourceScore() {
+            return this.lastTestRun?.eval_result?.resource_score || 0;
+        },
+
+        get resourceScoreText() {
+            return (this.resourceScore * 100).toFixed(0) + '%';
+        },
+
+        get resourceScoreClass() {
+            if (this.resourceScore >= 0.7) return 'value-high';
+            if (this.resourceScore >= 0.4) return 'value-medium';
+            return 'value-low';
+        },
+
+        get riskCheckPassed() {
+            return this.lastTestRun?.eval_result?.risk_check_passed !== false;
+        },
+
+        get riskCheckText() {
+            return this.riskCheckPassed ? '通过 ✓' : '未通过';
+        },
+
+        get riskCheckClass() {
+            return this.riskCheckPassed ? 'value-high' : 'value-error';
+        },
+    };
+}
+</script>
+
+<style>
+.score-section {
+    text-align: center;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 0.75rem;
+}
+
+.score-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+
+.score-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.score-excellent { color: #166534; }
+.score-good { color: #15803d; }
+.score-fair { color: #b45309; }
+.score-poor { color: #dc2626; }
+
+.score-conclusion {
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+}
+
+.score-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.score-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+}
+
+.score-item-label {
+    color: var(--text-secondary);
+}
+
+.score-item-value {
+    font-weight: 600;
+}
+
+.value-high { color: #166534; }
+.value-medium { color: #b45309; }
+.value-low { color: #dc2626; }
+.value-warning { color: #d97706; }
+.value-error { color: #dc2626; }
+</style>

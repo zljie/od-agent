@@ -1,0 +1,22 @@
+<!-- 原始 Trace Tab -->
+{% if test_run %}
+<div class="trace-actions">
+    <button class="copy-btn" onclick="copyTraceToClipboard()">
+        复制 Trace
+    </button>
+</div>
+<pre id="trace-json" class="trace-json">{{ test_run | tojson(indent=2) }}</pre>
+
+<script>
+function copyTraceToClipboard() {
+    const traceText = document.getElementById('trace-json').textContent;
+    navigator.clipboard.writeText(traceText).then(() => {
+        alert('Trace 已复制到剪贴板');
+    }).catch(err => {
+        console.error('复制失败:', err);
+    });
+}
+</script>
+{% else %}
+<p class="empty-text">无 Trace 数据</p>
+{% endif %}

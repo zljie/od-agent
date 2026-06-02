@@ -1,5 +1,14 @@
-<div class="right-panel">
-    <!-- System Summary Card -->
+<div class="right-panel" x-data="rightPanel()">
+
+    <!-- 诊断摘要卡片 (测试后显示) -->
+    <div x-show="showDiagnostic" x-transition>
+        {% include 'admin/partials/diagnostic_summary.html' %}
+        {% include 'admin/partials/config_suggestions.html' %}
+        {% include 'admin/partials/quick_actions.html' %}
+    </div>
+
+    <!-- System Summary Card (默认显示) -->
+    <div x-show="!showDiagnostic">
     <div class="right-card">
         <div class="right-card-title">系统摘要</div>
         <table style="width: 100%;">
@@ -51,4 +60,24 @@
             <li>API Key 从环境变量读取，页面不存储敏感信息</li>
         </ul>
     </div>
+    </div>
 </div>
+
+<script>
+function rightPanel() {
+    return {
+        showDiagnostic: false,
+        lastTestRun: null,
+
+        setTestRun(testRun) {
+            this.lastTestRun = testRun;
+            this.showDiagnostic = !!testRun;
+        },
+
+        clearDiagnostic() {
+            this.lastTestRun = null;
+            this.showDiagnostic = false;
+        },
+    };
+}
+</script>

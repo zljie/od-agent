@@ -1,0 +1,20 @@
+<!-- Prompt 预览 Tab -->
+{% if resource_usage and resource_usage.prompt_fragments %}
+<div class="prompt-preview">
+    {% for fragment in resource_usage.prompt_fragments %}
+    <div class="prompt-line">
+        <span class="prompt-type">{{ fragment.name }}</span>
+        <span style="color: var(--text-muted);">{{ fragment.version or 'current' }}</span>
+        <span style="color: var(--text-muted);">{{ fragment.tokens or 0 }} tokens</span>
+        <span class="prompt-status {% if fragment.status == 'used' %}status-success{% else %}status-warning{% endif %}">
+            {{ '✓ 已使用' if fragment.status == 'used' else '✗ 未使用' }}
+        </span>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="prompt-preview">
+    <p style="color: var(--text-muted);">无 Prompt 数据</p>
+    <p style="font-size: 0.8rem; margin-top: 0.5rem;">当前测试未使用自定义 Prompt。</p>
+</div>
+{% endif %}

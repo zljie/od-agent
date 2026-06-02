@@ -1,0 +1,46 @@
+<!-- 意图命中 Tab -->
+{% if intent_trace %}
+<table class="diagnostic-table">
+    <thead>
+        <tr>
+            <th>意图名称</th>
+            <th>置信度</th>
+            <th>触发依据</th>
+            <th>路由结果</th>
+            <th>是否选中</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for candidate in intent_trace.candidates %}
+        <tr>
+            <td><code>{{ candidate.intent }}</code></td>
+            <td class="{% if candidate.confidence >= 0.8 %}confidence-high{% elif candidate.confidence >= 0.6 %}confidence-medium{% else %}confidence-low{% endif %}">
+                {{ (candidate.confidence * 100)|round(0) }}%
+            </td>
+            <td>{{ candidate.trigger_reason or '—' }}</td>
+            <td>{% if loop.first %}{{ intent_trace.routing_result or '主意图' }}{% else %}备选{% endif %}</td>
+            <td>{% if loop.first %}✓ 是{% else %}否{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div style="margin-top: 1rem; padding: 0.75rem; background: var(--surface-secondary); border-radius: 8px;">
+    <p><strong>最终命中：</strong>{{ intent_trace.selected_intent }}</p>
+    <p><strong>命中置信度：</strong>
+        <span class="{% if intent_trace.confidence >= 0.8 %}confidence-high{% elif intent_trace.confidence >= 0.6 %}confidence-medium{% else %}confidence-low{% endif %}">
+            {{ (intent_trace.confidence * 100)|round(0) }}%
+        </span>
+    </p>
+    <p><strong>触发阈值：</strong>{{ intent_trace.threshold }}</p>
+    <p><strong>结论：</strong>
+        {% if intent_trace.confidence >= intent_trace.threshold %}
+            符合预期 ✓
+        {% else %}
+            低于阈值，建议优化
+        {% endif %}
+    </p>
+</div>
+{% else %}
+<p class="empty-text">无意图识别数据</p>
+{% endif %}

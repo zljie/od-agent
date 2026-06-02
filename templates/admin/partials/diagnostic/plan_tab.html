@@ -1,0 +1,33 @@
+<!-- 任务链路 Tab -->
+{% if plan_trace and plan_trace.steps %}
+<div class="plan-timeline">
+    {% for step in plan_trace.steps %}
+    <div class="plan-step {% if step.status == 'failed' %}step-failed{% elif step.status == 'waiting' %}step-waiting{% endif %}">
+        <div class="step-name">
+            Step {{ step.step }} - {{ step.name }}
+            {% if step.status == 'success' %}
+            <span class="status-badge status-success">✓ 成功</span>
+            {% elif step.status == 'failed' %}
+            <span class="status-badge status-error">✗ 失败</span>
+            {% else %}
+            <span class="status-badge status-warning">⏳ {{ step.status }}</span>
+            {% endif %}
+        </div>
+        <div class="step-meta">
+            {% if step.latency_ms %}耗时: {{ step.latency_ms }}ms{% endif %}
+            {% if step.skill_name %} | Skill: {{ step.skill_name }}{% endif %}
+        </div>
+        {% if step.missing_slots %}
+        <div class="missing-slots">
+            缺失字段: {{ step.missing_slots|join(', ') }}
+        </div>
+        {% endif %}
+        {% if step.result %}
+        <div class="step-result">{{ step.result }}</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="empty-text">无任务链路数据</p>
+{% endif %}

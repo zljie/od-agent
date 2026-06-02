@@ -1,0 +1,670 @@
+<!-- 测试用例管理 -->
+<div class="config-card" x-data="testCasesSection()">
+    <div class="config-card-header">
+        <h3>测试用例管理</h3>
+        <button class="btn btn-primary" @click="showCreateModal = true">
+            + 新建用例
+        </button>
+    </div>
+
+    <!-- 过滤器 -->
+    <div class="filter-row">
+        <div class="filter-field">
+            <label>场景筛选</label>
+            <select x-model="filterScenario">
+                <option value="">全部场景</option>
+                <option value="order_query">订单查询</option>
+                <option value="logistics">物流追踪</option>
+                <option value="complaint">投诉处理</option>
+                <option value="product_inquiry">产品咨询</option>
+            </select>
+        </div>
+        <div class="filter-field">
+            <label>状态筛选</label>
+            <select x-model="filterStatus">
+                <option value="">全部</option>
+                <option value="active">启用</option>
+                <option value="archived">已归档</option>
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button class="btn btn-outline btn-sm" @click="loadTestCases()">
+                应用筛选
+            </button>
+        </div>
+    </div>
+
+    <!-- 用例列表 -->
+    <div class="cases-list">
+        <template x-if="loading">
+            <div class="loading-state">
+                <span class="loading-dots">加载中</span><span class="dots-animate"></span>
+            </div>
+        </template>
+
+        <template x-if="!loading && testCases.length === 0">
+            <div class="empty-state">
+                <p>暂无测试用例</p>
+                <p class="empty-hint">点击上方「新建用例」创建第一个测试用例</p>
+            </div>
+        </template>
+
+        <template x-for="testCase in filteredCases" :key="testCase.id">
+            <div class="case-card">
+                <div class="case-header">
+                    <div class="case-title">
+                        <span class="case-name" x-text="testCase.name"></span>
+                        <span class="case-status" :class="testCase.status === 'active' ? 'status-active' : 'status-archived'"
+                              x-text="testCase.status === 'active' ? '启用' : '已归档'"></span>
+                    </div>
+                    <div class="case-actions">
+                        <button class="btn btn-sm btn-outline" @click="runCase(testCase)">
+                            运行
+                        </button>
+                        <button class="btn btn-sm btn-outline" @click="editCase(testCase)">
+                            编辑
+                        </button>
+                        <button class="btn btn-sm btn-outline" @click="toggleArchive(testCase)"
+                                x-text="testCase.status === 'active' ? '归档' : '启用'">
+                        </button>
+                        <button class="btn btn-sm btn-danger" @click="deleteCase(testCase)">
+                            删除
+                        </button>
+                    </div>
+                </div>
+                <div class="case-meta">
+                    <span class="meta-item">
+                        <strong>场景:</strong> <span x-text="testCase.scenario_id || '默认'"></span>
+                    </span>
+                    <span class="meta-item">
+                        <strong>期望意图:</strong> <span x-text="testCase.expected_intent || '—'"></span>
+                    </span>
+                    <span class="meta-item">
+                        <strong>期望Skill:</strong> <span x-text="testCase.expected_skill || '—'"></span>
+                    </span>
+                </div>
+                <div class="case-input">
+                    <strong>测试输入:</strong>
+                    <p class="input-text" x-text="testCase.input"></p>
+                </div>
+                <div class="case-description" x-show="testCase.description">
+                    <strong>描述:</strong> <span x-text="testCase.description"></span>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- 批量操作 -->
+    <div class="batch-actions" x-show="selectedCases.length > 0">
+        <span>已选择 <span x-text="selectedCases.length"></span> 个用例</span>
+        <button class="btn btn-primary btn-sm" @click="runSelectedCases()">
+            批量运行
+        </button>
+        <button class="btn btn-outline btn-sm" @click="selectedCases = []">
+            取消选择
+        </button>
+    </div>
+
+    <!-- 创建/编辑弹窗 -->
+    <div class="modal-overlay" x-show="showCreateModal || showEditModal" @click.self="closeModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 x-text="showEditModal ? '编辑用例' : '新建用例'"></h4>
+                <button class="modal-close" @click="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-field">
+                    <label>用例名称 *</label>
+                    <input type="text" x-model="editingCase.name" placeholder="例如：订单查询-有订单号">
+                </div>
+                <div class="form-field">
+                    <label>测试输入 *</label>
+                    <textarea x-model="editingCase.input" rows="3" placeholder="输入测试消息..."></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>场景</label>
+                        <select x-model="editingCase.scenario_id">
+                            <option value="">默认场景</option>
+                            <option value="order_query">订单查询</option>
+                            <option value="logistics">物流追踪</option>
+                            <option value="complaint">投诉处理</option>
+                            <option value="product_inquiry">产品咨询</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>用户画像</label>
+                        <select x-model="editingCase.user_profile">
+                            <option value="">普通用户</option>
+                            <option value="vip">VIP用户</option>
+                            <option value="new">新用户</option>
+                            <option value="enterprise">企业用户</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-field">
+                    <label>描述</label>
+                    <textarea x-model="editingCase.description" rows="2" placeholder="用例说明..."></textarea>
+                </div>
+                <div class="form-field">
+                    <label>期望意图</label>
+                    <input type="text" x-model="editingCase.expected_intent" placeholder="例如：order_query">
+                </div>
+                <div class="form-field">
+                    <label>期望Skill</label>
+                    <input type="text" x-model="editingCase.expected_skill" placeholder="例如：order_lookup_skill">
+                </div>
+                <div class="form-field">
+                    <label>期望响应关键词</label>
+                    <input type="text" x-model="editingCase.expected_keywords_text"
+                           placeholder="用逗号分隔，例如：订单号,已发货">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @click="closeModal()">取消</button>
+                <button class="btn btn-primary" @click="saveCase()" :disabled="saving">
+                    <span x-show="saving" class="btn-spinner"></span>
+                    <span x-text="saving ? '保存中...' : '保存'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 运行结果弹窗 -->
+    <div class="modal-overlay" x-show="showResultModal" @click.self="showResultModal = false">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h4>运行结果</h4>
+                <button class="modal-close" @click="showResultModal = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <template x-if="runningResult">
+                    <div>
+                        <div class="result-summary" :class="runningResult.passed ? 'result-passed' : 'result-failed'">
+                            <span x-text="runningResult.passed ? '✓ 测试通过' : '✗ 测试失败'"></span>
+                            <span class="result-run-id">Run ID: <span x-text="runningResult.run_id"></span></span>
+                        </div>
+                        <div class="result-response">
+                            <strong>Agent 回复:</strong>
+                            <pre x-text="runningResult.response || '(无回复)'"></pre>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @click="showResultModal = false">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.filter-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.filter-field label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.filter-field select {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--surface-primary);
+    color: var(--text-primary);
+}
+
+.filter-actions {
+    margin-left: auto;
+}
+
+.cases-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.case-card {
+    background: var(--surface-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.case-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+}
+
+.case-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.case-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.case-status {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.status-active {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-archived {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.case-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.case-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.case-input {
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+.input-text {
+    margin-top: 0.25rem;
+    padding: 0.5rem;
+    background: var(--surface-tertiary);
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.case-description {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.batch-actions {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface-primary);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--surface-primary);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-large {
+    max-width: 700px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.modal-header h4 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-muted);
+}
+
+.modal-body {
+    padding: 1.5rem;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-soft);
+}
+
+.form-field {
+    margin-bottom: 1rem;
+}
+
+.form-field label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+}
+
+.form-field input,
+.form-field textarea,
+.form-field select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    background: var(--surface-primary);
+    color: var(--text-primary);
+}
+
+.form-row {
+    display: flex;
+    gap: 1rem;
+}
+
+.form-row .form-field {
+    flex: 1;
+}
+
+.result-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+.result-passed {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.result-failed {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.result-run-id {
+    font-size: 0.75rem;
+    font-weight: normal;
+    opacity: 0.7;
+}
+
+.result-response pre {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: var(--surface-secondary);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+}
+
+.btn-sm {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+}
+
+.btn-danger {
+    background: #fee2e2;
+    color: #991b1b;
+    border: none;
+}
+
+.btn-danger:hover {
+    background: #fecaca;
+}
+
+.btn-success {
+    background: #166534;
+    color: white;
+    border: none;
+}
+
+.btn-success:hover {
+    background: #14532d;
+}
+</style>
+
+<script>
+function testCasesSection() {
+    return {
+        testCases: [],
+        loading: false,
+        selectedCases: [],
+        filterScenario: '',
+        filterStatus: 'active',
+        showCreateModal: false,
+        showEditModal: false,
+        showResultModal: false,
+        editingCase: {},
+        editingCaseId: null,
+        saving: false,
+        runningResult: null,
+
+        async init() {
+            await this.loadTestCases();
+        },
+
+        async loadTestCases() {
+            this.loading = true;
+            try {
+                const params = new URLSearchParams();
+                if (this.filterScenario) params.append('scenario_id', this.filterScenario);
+                if (this.filterStatus) params.append('status', this.filterStatus);
+
+                const resp = await fetch(`/admin/agents/1/test-cases?${params}`);
+                const data = await resp.json();
+                this.testCases = data.test_cases || [];
+            } catch (e) {
+                console.error('Failed to load test cases:', e);
+                this.showToast('加载失败: ' + e.message, 'error');
+            }
+            this.loading = false;
+        },
+
+        get filteredCases() {
+            return this.testCases;
+        },
+
+        async runCase(testCase) {
+            try {
+                const resp = await fetch(`/admin/agents/1/test-cases/${testCase.id}/run`, {
+                    method: 'POST',
+                });
+                const data = await resp.json();
+                this.runningResult = {
+                    ...data.test_run,
+                    response: data.response,
+                    passed: data.test_run?.eval_result?.overall_score >= 70,
+                };
+                this.showResultModal = true;
+            } catch (e) {
+                this.showToast('运行失败: ' + e.message, 'error');
+            }
+        },
+
+        async runSelectedCases() {
+            if (this.selectedCases.length === 0) return;
+
+            try {
+                const resp = await fetch(`/admin/agents/1/eval/batch`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        case_ids: this.selectedCases,
+                        run_mode: 'sequential',
+                    }),
+                });
+                const data = await resp.json();
+
+                let message = `批量测试完成\n`;
+                message += `总计: ${data.total} 个\n`;
+                message += `通过: ${data.passed} 个\n`;
+                message += `失败: ${data.failed} 个\n`;
+                message += `通过率: ${data.pass_rate}`;
+
+                this.showToast(message, data.failed > 0 ? 'warning' : 'success');
+                this.selectedCases = [];
+            } catch (e) {
+                this.showToast('批量运行失败: ' + e.message, 'error');
+            }
+        },
+
+        editCase(testCase) {
+            this.editingCase = {
+                name: testCase.name,
+                input: testCase.input,
+                scenario_id: testCase.scenario_id || '',
+                user_profile: testCase.user_profile || '',
+                description: testCase.description || '',
+                expected_intent: testCase.expected_intent || '',
+                expected_skill: testCase.expected_skill || '',
+                expected_keywords_text: (testCase.expected_response_keywords || []).join(', '),
+            };
+            this.editingCaseId = testCase.id;
+            this.showEditModal = true;
+            this.showCreateModal = false;
+        },
+
+        async saveCase() {
+            if (!this.editingCase.name || !this.editingCase.input) {
+                this.showToast('请填写必填项', 'error');
+                return;
+            }
+
+            this.saving = true;
+            try {
+                const payload = {
+                    name: this.editingCase.name,
+                    input: this.editingCase.input,
+                    scenario_id: this.editingCase.scenario_id,
+                    user_profile: this.editingCase.user_profile,
+                    description: this.editingCase.description,
+                    expected_intent: this.editingCase.expected_intent,
+                    expected_skill: this.editingCase.expected_skill,
+                    expected_keywords: this.editingCase.expected_keywords_text.split(',').map(s => s.trim()).filter(Boolean),
+                };
+
+                if (this.showEditModal && this.editingCaseId) {
+                    await fetch(`/admin/agents/1/test-cases/${this.editingCaseId}`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload),
+                    });
+                    this.showToast('用例已更新');
+                } else {
+                    await fetch('/admin/agents/1/test-cases', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload),
+                    });
+                    this.showToast('用例已创建');
+                }
+
+                this.closeModal();
+                await this.loadTestCases();
+            } catch (e) {
+                this.showToast('保存失败: ' + e.message, 'error');
+            }
+            this.saving = false;
+        },
+
+        async toggleArchive(testCase) {
+            try {
+                const newStatus = testCase.status === 'active' ? 'archived' : 'active';
+                await fetch(`/admin/agents/1/test-cases/${testCase.id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({status: newStatus}),
+                });
+                await this.loadTestCases();
+                this.showToast(`用例已${newStatus === 'active' ? '启用' : '归档'}`);
+            } catch (e) {
+                this.showToast('操作失败: ' + e.message, 'error');
+            }
+        },
+
+        async deleteCase(testCase) {
+            if (!confirm(`确定要删除用例「${testCase.name}」吗？`)) return;
+
+            try {
+                await fetch(`/admin/agents/1/test-cases/${testCase.id}`, {
+                    method: 'DELETE',
+                });
+                await this.loadTestCases();
+                this.showToast('用例已删除');
+            } catch (e) {
+                this.showToast('删除失败: ' + e.message, 'error');
+            }
+        },
+
+        closeModal() {
+            this.showCreateModal = false;
+            this.showEditModal = false;
+            this.editingCase = {};
+            this.editingCaseId = null;
+        },
+
+        showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `<span style="white-space: pre-line;">${message}</span><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 5000);
+        },
+    };
+}
+</script>

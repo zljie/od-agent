@@ -66,11 +66,11 @@
                 </li>
                 <li class="sidebar-nav-item">
                     <a href="#"
-                       hx-get="/admin/agents/1/sections/intent_routes"
+                       hx-get="/admin/agents/1/sections/intent_routing"
                        hx-target="#main-panel"
                        hx-swap="innerHTML show:top"
-                       :class="{ 'active': activeSection === 'intent_routes' }"
-                       @click="activeSection = 'intent_routes'">
+                       :class="{ 'active': activeSection === 'intent_routing' }"
+                       @click="activeSection = 'intent_routing'">
                         <span class="nav-icon">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                         </span>
@@ -105,15 +105,15 @@
                 </li>
                 <li class="sidebar-nav-item">
                     <a href="#"
-                       hx-get="/admin/agents/1/sections/test_publish"
+                       hx-get="/admin/agents/1/sections/test_diagnostic"
                        hx-target="#main-panel"
                        hx-swap="innerHTML show:top"
-                       :class="{ 'active': activeSection === 'test_publish' }"
-                       @click="activeSection = 'test_publish'">
+                       :class="{ 'active': activeSection === 'test_diagnostic' }"
+                       @click="activeSection = 'test_diagnostic'">
                         <span class="nav-icon">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                         </span>
-                        测试与发布
+                        测试诊断
                     </a>
                 </li>
             </ul>

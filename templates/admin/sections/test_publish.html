@@ -63,7 +63,12 @@
         </div>
 
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-            <button type="button" class="btn btn-primary" @click="publish()"
+            <button type="button" class="btn btn-primary" @click="runReleaseCheck()"
+                    :disabled="checking">
+                <span x-show="checking" class="btn-spinner"></span>
+                <span x-text="checking ? '检查中...' : '发布前检查'"></span>
+            </button>
+            <button type="button" class="btn btn-success" @click="confirmPublish()"
                     :disabled="publishing">
                 <span x-show="publishing" class="btn-spinner"></span>
                 <span x-text="publishing ? '发布中...' : '发布上线'"></span>
@@ -93,6 +98,8 @@ function testPublishSection() {
         publishing: false,
         publishResult: null,
         publishResultType: 'success',
+        checking: false,
+        releaseCheckResult: null,
 
         async runTest() {
             if (!this.testMessage || !this.testMessage.trim()) return;
@@ -115,6 +122,49 @@ function testPublishSection() {
             this.testing = false;
         },
 
+        async runReleaseCheck() {
+            this.checking = true;
+            this.releaseCheckResult = null;
+            try {
+                const resp = await fetch('/admin/agents/1/release-check', { method: 'POST' });
+                const data = await resp.json();
+                this.releaseCheckResult = data;
+
+                let message = `发布前检查完成\n`;
+                message += `总计 ${data.summary.total} 项检查\n`;
+                message += `通过 ${data.summary.passed} 项\n`;
+                if (data.summary.warnings > 0) {
+                    message += `警告 ${data.summary.warnings} 项\n`;
+                }
+                if (data.summary.failed > 0) {
+                    message += `失败 ${data.summary.failed} 项\n`;
+                    const failedChecks = data.checks.filter(c => c.status === 'fail');
+                    message += `\n失败项目:\n`;
+                    failedChecks.forEach(c => {
+                        message += `- ${c.name}: ${c.description}\n`;
+                    });
+                }
+
+                if (data.status === 'pass') {
+                    this.showToast(message, 'success');
+                } else if (data.status === 'warning') {
+                    this.showToast(message, 'warning');
+                } else {
+                    this.showToast(message, 'error');
+                }
+            } catch(e) {
+                this.showToast('检查失败: ' + e.message, 'error');
+            }
+            this.checking = false;
+        },
+
+        async confirmPublish() {
+            if (this.releaseCheckResult && this.releaseCheckResult.status === 'fail') {
+                if (!confirm('发布前检查有失败项，确定要继续发布吗？')) return;
+            }
+            await this.publish();
+        },
+
         async publish() {
             if (!confirm('发布后配置将影响线上所有用户。确定要发布吗？')) return;
             this.publishing = true;
@@ -129,7 +179,8 @@ function testPublishSection() {
                 if (data.status === 'success') {
                     this.publishResult = '发布成功！当前版本: ' + (data.version || 'v1.x');
                     this.publishResultType = 'success';
-                    // Update parent Alpine component if exists
+                    this.currentVersion = data.version || 'v1.x';
+                    this.draftVersion = 'v1.x (已发布)';
                     const ws = document.querySelector('[x-data]');
                     if (ws && ws.__x && ws.__x.$data) {
                         ws.__x.$data.agent.status = 'published';
@@ -143,6 +194,16 @@ function testPublishSection() {
                 this.publishResultType = 'error';
             }
             this.publishing = false;
+        },
+
+        showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `<span style="white-space: pre-line;">${message}</span><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 6000);
         },
     };
 }

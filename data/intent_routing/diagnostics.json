@@ -1,0 +1,37 @@
+{
+  "score": 85,
+  "issues": [
+    {
+      "level": "warning",
+      "type": "intent_conflict",
+      "message": "logistics_tracking 与 order_query 存在样例重叠",
+      "suggestion": "增加反向样例或调整优先级以区分这两个意图"
+    },
+    {
+      "level": "warning",
+      "type": "draft_intent",
+      "message": "complaint_handling 状态为草稿，尚未启用",
+      "suggestion": "配置完成后建议启用或删除草稿意图"
+    },
+    {
+      "level": "warning",
+      "type": "missing_tests",
+      "message": "以下意图缺少测试用例: complaint_handling, product_info",
+      "suggestion": "添加测试用例以验证路由正确性"
+    },
+    {
+      "level": "info",
+      "type": "test_coverage",
+      "message": "测试通过率 100% (4/4 有测试用例的意图全部通过)",
+      "suggestion": "建议为所有启用的意图添加测试用例以提高覆盖率"
+    }
+  ],
+  "suggestions": [
+    "配置状态良好，继续保持",
+    "建议增加更多意图以覆盖常见用户场景",
+    "考虑添加关键词以提高识别准确性",
+    "建议为 logistics_tracking 添加更多区分性样例以减少与 order_query 的重叠",
+    "建议为 product_info 和 complaint_handling 添加测试用例"
+  ],
+  "timestamp": "2026-06-02T10:45:00.000000"
+}

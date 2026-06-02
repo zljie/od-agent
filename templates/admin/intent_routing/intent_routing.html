@@ -1,0 +1,1053 @@
+<!-- 意图路由配置页面 - 三栏布局工作台 -->
+<div class="intent-routing-workspace" x-data="intentRoutingWorkspace()">
+
+    <!-- 顶部路由总览 -->
+    <div class="intent-routing-header">
+        <div class="routing-header-left">
+            <h2 class="routing-title">意图路由</h2>
+            <span class="routing-subtitle">定义用户输入如何被识别、分流、追问与触发任务链</span>
+        </div>
+        <div class="routing-stats">
+            <div class="stat-badge">
+                <span class="stat-number" x-text="stats.total"></span>
+                <span class="stat-label">总意图</span>
+            </div>
+            <div class="stat-badge stat-enabled">
+                <span class="stat-number" x-text="stats.enabled"></span>
+                <span class="stat-label">已启用</span>
+            </div>
+            <div class="stat-badge stat-conflict" x-show="stats.conflicts > 0">
+                <span class="stat-number" x-text="stats.conflicts"></span>
+                <span class="stat-label">冲突</span>
+            </div>
+            <div class="stat-badge stat-unbound" x-show="stats.unbound > 0">
+                <span class="stat-number" x-text="stats.unbound"></span>
+                <span class="stat-label">未绑定</span>
+            </div>
+            <div class="stat-badge stat-pass">
+                <span class="stat-number" x-text="stats.passRate + '%'"></span>
+                <span class="stat-label">测试通过</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 三栏布局 -->
+    <div class="intent-routing-columns">
+
+        <!-- 第一栏：意图列表 -->
+        <div class="intent-list-column">
+            <div class="column-header">
+                <h3>意图列表</h3>
+                <button class="btn btn-sm btn-primary" @click="createNewIntent()">
+                    + 新建
+                </button>
+            </div>
+
+            <!-- 筛选器 -->
+            <div class="filter-bar">
+                <select x-model="filters.status" @change="applyFilters()" class="filter-select">
+                    <option value="">全部</option>
+                    <option value="enabled">已启用</option>
+                    <option value="draft">草稿</option>
+                    <option value="conflict">有冲突</option>
+                    <option value="unbound">未绑定 Skill</option>
+                    <option value="failed">测试失败</option>
+                </select>
+                <input type="text" x-model="filters.search" @input="applyFilters()"
+                       placeholder="搜索意图..." class="filter-search">
+            </div>
+
+            <!-- 意图列表 -->
+            <div class="intent-list">
+                <template x-if="filteredIntents.length === 0">
+                    <div class="empty-state">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                        </svg>
+                        <p>暂无意图规则</p>
+                        <button class="btn btn-sm btn-outline" @click="createNewIntent()">创建第一个意图</button>
+                    </div>
+                </template>
+                <template x-for="intent in filteredIntents" :key="intent.id">
+                    <div class="intent-list-item"
+                         :class="{ 'active': selectedIntent && selectedIntent.id === intent.id, 'draft': intent.status === 'draft', 'conflict': intent.conflict, 'unbound': !intent.route_target }"
+                         @click="selectIntent(intent)">
+                        <div class="intent-item-header">
+                            <span class="intent-name" x-text="intent.name"></span>
+                            <span class="intent-status-dot"
+                                  :class="getStatusClass(intent)"
+                                  :title="getStatusText(intent)"></span>
+                        </div>
+                        <div class="intent-item-display" x-text="intent.display_name || intent.name"></div>
+                        <div class="intent-item-meta">
+                            <span class="intent-priority">优先级: <span x-text="intent.priority || 50"></span></span>
+                            <span class="intent-route" x-text="intent.route_target || '未绑定'"></span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- 第二栏：意图详情配置 -->
+        <div class="intent-detail-column">
+            <template x-if="!selectedIntent">
+                <div class="detail-empty-state">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                        <line x1="12" y1="22.08" x2="12" y2="12"/>
+                    </svg>
+                    <p>选择左侧意图查看详情</p>
+                    <p style="font-size: 0.8rem; color: #9ca3af;">或点击「新建」创建新意图</p>
+                </div>
+            </template>
+
+            <template x-if="selectedIntent">
+                <div class="intent-detail-content">
+                    <!-- 基础信息 -->
+                    <section class="detail-section">
+                        <div class="section-header">
+                            <h4>基础信息</h4>
+                            <span class="section-badge">基本信息</span>
+                        </div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label>Intent Name <span class="required">*</span></label>
+                                <input type="text" x-model="selectedIntent.name" @change="markDirty()"
+                                       placeholder="e.g. order_query" :disabled="selectedIntent._isNew">
+                                <small>系统内部唯一标识，建议使用英文</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Display Name <span class="required">*</span></label>
+                                <input type="text" x-model="selectedIntent.display_name" @change="markDirty()"
+                                       placeholder="e.g. 订单查询">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <textarea x-model="selectedIntent.description" @change="markDirty()"
+                                      rows="2" placeholder="简要描述此意图的用途..."></textarea>
+                        </div>
+                        <div class="form-grid-3">
+                            <div class="form-group">
+                                <label>Status</label>
+                                <select x-model="selectedIntent.status" @change="markDirty()">
+                                    <option value="enabled">启用</option>
+                                    <option value="draft">草稿</option>
+                                    <option value="disabled">禁用</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Priority</label>
+                                <input type="number" x-model="selectedIntent.priority" @change="markDirty()"
+                                       min="1" max="100" value="50">
+                                <small>越高越优先 (1-100)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Domain</label>
+                                <input type="text" x-model="selectedIntent.domain" @change="markDirty()"
+                                       placeholder="e.g. order_service">
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 触发样例 -->
+                    <section class="detail-section">
+                        <div class="section-header">
+                            <h4>触发样例</h4>
+                            <div class="example-tabs">
+                                <button class="tab-btn" :class="{ active: exampleTab === 'positive' }"
+                                        @click="exampleTab = 'positive'">
+                                    正向 <span class="tab-count" x-text="(selectedIntent.positive_examples || []).length"></span>
+                                </button>
+                                <button class="tab-btn" :class="{ active: exampleTab === 'negative' }"
+                                        @click="exampleTab = 'negative'">
+                                    反向 <span class="tab-count" x-text="(selectedIntent.negative_examples || []).length"></span>
+                                </button>
+                                <button class="tab-btn" :class="{ active: exampleTab === 'edge' }"
+                                        @click="exampleTab = 'edge'">
+                                    边界 <span class="tab-count" x-text="(selectedIntent.edge_examples || []).length"></span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 正向样例 -->
+                        <template x-if="exampleTab === 'positive'">
+                            <div class="example-panel">
+                                <div class="example-input-row">
+                                    <input type="text" x-model="newExample.positive"
+                                           @keydown.enter.prevent="addExample('positive')"
+                                           placeholder="输入正向样例后按回车添加..." class="example-input">
+                                    <button class="btn btn-sm btn-outline" @click="addExample('positive')">添加</button>
+                                </div>
+                                <div class="example-list">
+                                    <template x-for="(ex, idx) in (selectedIntent.positive_examples || [])" :key="idx">
+                                        <div class="example-item positive">
+                                            <span x-text="ex"></span>
+                                            <button class="ex-remove" @click="removeExample('positive', idx)">&times;</button>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="example-help">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                                    </svg>
+                                    正向样例表示应该命中此意图的典型用户表达
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- 反向样例 -->
+                        <template x-if="exampleTab === 'negative'">
+                            <div class="example-panel">
+                                <div class="example-input-row">
+                                    <input type="text" x-model="newExample.negative"
+                                           @keydown.enter.prevent="addExample('negative')"
+                                           placeholder="输入反向样例后按回车添加..." class="example-input">
+                                    <button class="btn btn-sm btn-outline" @click="addExample('negative')">添加</button>
+                                </div>
+                                <div class="example-list">
+                                    <template x-for="(ex, idx) in (selectedIntent.negative_examples || [])" :key="idx">
+                                        <div class="example-item negative">
+                                            <span x-text="ex"></span>
+                                            <button class="ex-remove" @click="removeExample('negative', idx)">&times;</button>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="example-help">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                                    </svg>
+                                    反向样例表示不应该命中此意图的表达，用于排除干扰
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- 边界样例 -->
+                        <template x-if="exampleTab === 'edge'">
+                            <div class="example-panel">
+                                <div class="example-input-row">
+                                    <input type="text" x-model="newExample.edge"
+                                           @keydown.enter.prevent="addExample('edge')"
+                                           placeholder="输入边界样例后按回车添加..." class="example-input">
+                                    <button class="btn btn-sm btn-outline" @click="addExample('edge')">添加</button>
+                                </div>
+                                <div class="example-list">
+                                    <template x-for="(ex, idx) in (selectedIntent.edge_examples || [])" :key="idx">
+                                        <div class="example-item edge">
+                                            <span x-text="ex"></span>
+                                            <button class="ex-remove" @click="removeExample('edge', idx)">&times;</button>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="example-help">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                                    </svg>
+                                    边界样例表示容易与其他意图混淆的表达，需要重点测试
+                                </div>
+                            </div>
+                        </template>
+                    </section>
+
+                    <!-- 识别规则 -->
+                    <section class="detail-section">
+                        <div class="section-header">
+                            <h4>识别规则</h4>
+                        </div>
+                        <div class="rule-toggles">
+                            <label class="rule-toggle">
+                                <input type="checkbox" x-model="selectedIntent.semantic_enabled"
+                                       @change="markDirty()">
+                                <span>语义识别</span>
+                            </label>
+                            <label class="rule-toggle">
+                                <input type="checkbox" x-model="selectedIntent.keyword_boost_enabled"
+                                       @change="markDirty()">
+                                <span>关键词增强</span>
+                            </label>
+                            <label class="rule-toggle">
+                                <input type="checkbox" x-model="selectedIntent.regex_enabled"
+                                       @change="markDirty()">
+                                <span>正则规则</span>
+                            </label>
+                        </div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label>Include Keywords (命中关键词)</label>
+                                <div class="keywords-input-container">
+                                    <input type="text" x-model="newKeyword.include"
+                                           @keydown.enter.prevent="addKeyword('include')"
+                                           placeholder="输入后按回车...">
+                                    <div class="keywords-tags">
+                                        <template x-for="(kw, idx) in (selectedIntent.include_keywords || [])" :key="'inc'+idx">
+                                            <span class="keyword-tag include">
+                                                <span x-text="kw"></span>
+                                                <button @click="removeKeyword('include', idx)">&times;</button>
+                                            </span>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Exclude Keywords (排除关键词)</label>
+                                <div class="keywords-input-container">
+                                    <input type="text" x-model="newKeyword.exclude"
+                                           @keydown.enter.prevent="addKeyword('exclude')"
+                                           placeholder="输入后按回车...">
+                                    <div class="keywords-tags">
+                                        <template x-for="(kw, idx) in (selectedIntent.exclude_keywords || [])" :key="'exc'+idx">
+                                            <span class="keyword-tag exclude">
+                                                <span x-text="kw"></span>
+                                                <button @click="removeKeyword('exclude', idx)">&times;</button>
+                                            </span>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 槽位要求 -->
+                    <section class="detail-section">
+                        <div class="section-header">
+                            <h4>槽位要求</h4>
+                            <button class="btn btn-sm btn-outline" @click="addSlot()">+ 添加槽位</button>
+                        </div>
+                        <div class="slots-table" x-show="(selectedIntent.slots || []).length > 0">
+                            <table class="slots-config-table">
+                                <thead>
+                                    <tr>
+                                        <th>槽位名称</th>
+                                        <th>是否必填</th>
+                                        <th>获取方式</th>
+                                        <th>缺失动作</th>
+                                        <th>追问话术</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="(slot, idx) in (selectedIntent.slots || [])" :key="idx">
+                                        <tr>
+                                            <td><input type="text" x-model="slot.slot_name" class="slot-input"></td>
+                                            <td>
+                                                <select x-model="slot.required" class="slot-select">
+                                                    <option :value="true">必填</option>
+                                                    <option :value="false">可选</option>
+                                                    <option value="one_of">条件必填</option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <select x-model="slot.source" class="slot-select">
+                                                    <option value="user_input">用户输入</option>
+                                                    <option value="entity_extract">实体抽取</option>
+                                                    <option value="session">会话上下文</option>
+                                                    <option value="profile">用户画像</option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <select x-model="slot.missing_action" class="slot-select">
+                                                    <option value="ask">追问</option>
+                                                    <option value="skip">跳过</option>
+                                                    <option value="human_handoff">转人工</option>
+                                                    <option value="fixed_reply">固定回复</option>
+                                                    <option value="reject">拒绝执行</option>
+                                                </select>
+                                            </td>
+                                            <td><input type="text" x-model="slot.ask_template" class="slot-input" placeholder="追问话术..."></td>
+                                            <td>
+                                                <button class="btn btn-sm btn-ghost" @click="removeSlot(idx)" style="color: #eb3349;">删除</button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="slots-empty" x-show="(selectedIntent.slots || []).length === 0">
+                            <p>暂无槽位配置</p>
+                            <small>槽位是意图执行前必须收集的业务字段</small>
+                        </div>
+                    </section>
+
+                    <!-- 路由目标 -->
+                    <section class="detail-section">
+                        <div class="section-header">
+                            <h4>路由目标</h4>
+                        </div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label>Route Type</label>
+                                <select x-model="selectedIntent.route_type" @change="markDirty()">
+                                    <option value="skill">Skill</option>
+                                    <option value="task_chain">任务链</option>
+                                    <option value="knowledge_base">知识库</option>
+                                    <option value="fixed_reply">固定回复</option>
+                                    <option value="human_handoff">转人工</option>
+                                    <option value="reject">拒答策略</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Route Target</label>
+                                <input type="text" x-model="selectedIntent.route_target" @change="markDirty()"
+                                       placeholder="e.g. order_lookup_skill">
+                            </div>
+                        </div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label>Fallback Action (槽位缺失时)</label>
+                                <select x-model="selectedIntent.fallback_action" @change="markDirty()">
+                                    <option value="ask_missing_slot">追问缺失槽位</option>
+                                    <option value="skip">跳过</option>
+                                    <option value="human_handoff">转人工</option>
+                                    <option value="fixed_reply">固定回复</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Failure Action (执行失败时)</label>
+                                <select x-model="selectedIntent.failure_action" @change="markDirty()">
+                                    <option value="human_handoff">转人工</option>
+                                    <option value="fixed_reply">固定回复</option>
+                                    <option value="reject">拒绝执行</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 路由流程可视化 -->
+                        <div class="route-flow-viz">
+                            <div class="flow-step">
+                                <span class="flow-label">Intent</span>
+                                <span class="flow-value" x-text="selectedIntent.name"></span>
+                            </div>
+                            <div class="flow-arrow">↓</div>
+                            <div class="flow-step">
+                                <span class="flow-label">Slot Check</span>
+                                <span class="flow-value" x-text="getSlotSummary()"></span>
+                            </div>
+                            <div class="flow-arrow">↓</div>
+                            <div class="flow-step">
+                                <span class="flow-label">Route</span>
+                                <span class="flow-value" x-text="selectedIntent.route_type + ': ' + (selectedIntent.route_target || '未配置')"></span>
+                            </div>
+                            <div class="flow-arrow">↓</div>
+                            <div class="flow-step">
+                                <span class="flow-label">Response</span>
+                                <span class="flow-value" x-text="selectedIntent.failure_action || 'default'"></span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 测试用例 -->
+                    <section class="detail-section">
+                        <div class="section-header">
+                            <h4>测试用例</h4>
+                            <button class="btn btn-sm btn-outline" @click="addTestCase()">+ 添加用例</button>
+                        </div>
+                        <div class="test-cases-list">
+                            <template x-for="(tc, idx) in (selectedIntent.test_cases || [])" :key="idx">
+                                <div class="test-case-item">
+                                    <div class="test-case-header">
+                                        <span class="test-case-status" :class="tc.status || 'pending'"
+                                              x-text="getTestStatusText(tc.status)"></span>
+                                        <button class="btn btn-sm btn-ghost" @click="removeTestCase(idx)">&times;</button>
+                                    </div>
+                                    <div class="test-case-content">
+                                        <div class="tc-row">
+                                            <label>测试输入:</label>
+                                            <input type="text" x-model="tc.input" placeholder="用户消息...">
+                                        </div>
+                                        <div class="tc-row">
+                                            <label>预期意图:</label>
+                                            <input type="text" x-model="tc.expected_intent" placeholder="e.g. order_query">
+                                        </div>
+                                        <div class="tc-row">
+                                            <label>预期路由:</label>
+                                            <input type="text" x-model="tc.expected_route_target" placeholder="e.g. order_lookup_skill">
+                                        </div>
+                                        <div class="tc-row">
+                                            <label>预期状态:</label>
+                                            <select x-model="tc.expected_action">
+                                                <option value="executable">可执行</option>
+                                                <option value="ask_missing_slot">需要追问</option>
+                                                <option value="human_handoff">转人工</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        <div class="test-cases-empty" x-show="(selectedIntent.test_cases || []).length === 0">
+                            <p>暂无测试用例</p>
+                            <small>添加测试用例用于路由 Eval 和发布前检查</small>
+                        </div>
+                    </section>
+
+                    <!-- 操作按钮 -->
+                    <div class="detail-actions">
+                        <button class="btn btn-primary" @click="saveIntent()" :disabled="saving">
+                            <span x-show="!saving">保存</span>
+                            <span x-show="saving">保存中...</span>
+                        </button>
+                        <button class="btn btn-outline" @click="testIntent()">快速测试</button>
+                        <button class="btn btn-danger btn-ghost" @click="deleteIntent()"
+                                x-show="!selectedIntent._isNew">删除</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- 第三栏：路由诊断 -->
+        <div class="intent-diagnostics-column">
+            <div class="column-header">
+                <h3>路由诊断</h3>
+                <button class="btn btn-sm btn-ghost" @click="runDiagnostics()" :disabled="diagnosing">
+                    <span x-show="!diagnosing">刷新</span>
+                    <span x-show="diagnosing">诊断中...</span>
+                </button>
+            </div>
+
+            <!-- 健康度评分 -->
+            <div class="health-score-card">
+                <div class="health-score-label">配置健康度</div>
+                <div class="health-score-value" x-text="diagnostics.score + '/100'"
+                     :style="'color: ' + getScoreColor(diagnostics.score)"></div>
+                <div class="health-score-bar">
+                    <div class="health-score-fill" :style="'width: ' + diagnostics.score + '%; background: ' + getScoreColor(diagnostics.score)"></div>
+                </div>
+            </div>
+
+            <!-- 问题列表 -->
+            <div class="diagnostics-issues">
+                <h5>问题 (<span x-text="diagnostics.issues.length"></span>)</h5>
+                <template x-if="diagnostics.issues.length === 0">
+                    <div class="issues-empty">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                            <polyline points="22 4 12 14.01 9 11.01"/>
+                        </svg>
+                        <p>暂无问题</p>
+                    </div>
+                </template>
+                <template x-for="(issue, idx) in diagnostics.issues" :key="idx">
+                    <div class="issue-item" :class="'level-' + issue.level">
+                        <div class="issue-icon">
+                            <template x-if="issue.level === 'error'">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#eb3349" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                                </svg>
+                            </template>
+                            <template x-if="issue.level === 'warning'">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                </svg>
+                            </template>
+                            <template x-if="issue.level === 'info'">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                                </svg>
+                            </template>
+                        </div>
+                        <div class="issue-content">
+                            <div class="issue-message" x-text="issue.message"></div>
+                            <div class="issue-suggestion" x-show="issue.suggestion" x-text="'→ ' + issue.suggestion"></div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- 建议区域 -->
+            <div class="diagnostics-suggestions">
+                <h5>优化建议</h5>
+                <template x-if="diagnostics.suggestions.length === 0">
+                    <p class="no-suggestions">配置状态良好</p>
+                </template>
+                <ul class="suggestion-list">
+                    <template x-for="(sug, idx) in diagnostics.suggestions" :key="idx">
+                        <li x-text="sug"></li>
+                    </template>
+                </ul>
+            </div>
+
+            <!-- 发布前检查 -->
+            <div class="pre-publish-check">
+                <h5>发布前检查</h5>
+                <div class="publish-check-summary">
+                    <div class="check-stat pass">
+                        <span x-text="publishChecks.passed"></span> 可发布
+                    </div>
+                    <div class="check-stat fail" x-show="publishChecks.failed > 0">
+                        <span x-text="publishChecks.failed"></span> 存在问题
+                    </div>
+                    <div class="check-stat warn" x-show="publishChecks.warnings > 0">
+                        <span x-text="publishChecks.warnings"></span> 警告
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部快速测试区 -->
+    <div class="quick-test-panel">
+        <div class="quick-test-header">
+            <h3>快速测试</h3>
+            <span class="quick-test-desc">输入一句用户消息，查看路由结果</span>
+        </div>
+        <div class="quick-test-content">
+            <div class="test-input-area">
+                <input type="text" x-model="testMessage"
+                       @keydown.enter.prevent="runQuickTest()"
+                       placeholder="输入测试消息，如：我的订单到哪了？"
+                       class="test-input">
+                <select x-model="testUserProfile" class="test-profile-select">
+                    <option value="normal_user">普通用户</option>
+                    <option value="vip_user">VIP 用户</option>
+                    <option value="guest">访客</option>
+                </select>
+                <button class="btn btn-primary" @click="runQuickTest()" :disabled="testing">
+                    <span x-show="!testing">测试</span>
+                    <span x-show="testing">测试中...</span>
+                </button>
+            </div>
+
+            <template x-if="testResult">
+                <div class="test-result-panel">
+                    <!-- 命中的意图 -->
+                    <div class="result-section">
+                        <h5>命中意图</h5>
+                        <div class="intent-candidates">
+                            <template x-for="(cand, idx) in testResult.candidates" :key="idx">
+                                <div class="candidate-item" :class="{ selected: cand.selected, 'not-selected': !cand.selected }">
+                                    <div class="candidate-name" x-text="cand.intent"></div>
+                                    <div class="candidate-confidence">
+                                        <div class="confidence-bar">
+                                            <div class="confidence-fill" :style="'width: ' + (cand.confidence * 100) + '%'"></div>
+                                        </div>
+                                        <span class="confidence-value" x-text="(cand.confidence * 100).toFixed(0) + '%'"></span>
+                                    </div>
+                                    <span class="candidate-badge" x-show="cand.selected">选中</span>
+                                    <span class="candidate-badge candidate" x-show="!cand.selected">候选</span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- 路由结果 -->
+                    <div class="result-section">
+                        <h5>路由结果</h5>
+                        <div class="route-result">
+                            <div class="route-type" x-text="'类型: ' + (testResult.route_type || '-')"></div>
+                            <div class="route-target" x-text="'目标: ' + (testResult.route_target || '-')"></div>
+                        </div>
+                    </div>
+
+                    <!-- 执行状态 -->
+                    <div class="result-section">
+                        <h5>执行状态</h5>
+                        <div class="execution-status" :class="{ executable: testResult.executable, 'not-executable': !testResult.executable }">
+                            <template x-if="testResult.executable">
+                                <div>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                                    </svg>
+                                    <span>可执行</span>
+                                </div>
+                            </template>
+                            <template x-if="!testResult.executable">
+                                <div>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+                                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                    <span x-text="testResult.executable === false ? '需要追问' : '不可执行'"></span>
+                                </div>
+                            </template>
+                        </div>
+                        <template x-if="testResult.missing_slots && testResult.missing_slots.length > 0">
+                            <div class="missing-slots">
+                                <strong>缺失槽位:</strong>
+                                <span x-text="testResult.missing_slots.join(', ')"></span>
+                            </div>
+                        </template>
+                        <template x-if="testResult.next_action">
+                            <div class="next-action">
+                                <strong>下一步:</strong>
+                                <span x-text="getNextActionText(testResult.next_action)"></span>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 诊断信息 -->
+                    <template x-if="testResult.diagnostics && testResult.diagnostics.length > 0">
+                        <div class="result-section">
+                            <h5>诊断信息</h5>
+                            <ul class="diagnostic-list">
+                                <template x-for="(diag, idx) in testResult.diagnostics" :key="idx">
+                                    <li x-text="diag"></li>
+                                </template>
+                            </ul>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function intentRoutingWorkspace() {
+    return {
+        // State
+        intents: [],
+        filteredIntents: [],
+        selectedIntent: null,
+        filters: { status: '', search: '' },
+        exampleTab: 'positive',
+        newExample: { positive: '', negative: '', edge: '' },
+        newKeyword: { include: '', exclude: '' },
+        testMessage: '',
+        testUserProfile: 'normal_user',
+        testResult: null,
+        testing: false,
+        saving: false,
+        diagnosing: false,
+        diagnostics: { score: 100, issues: [], suggestions: [] },
+        publishChecks: { passed: 0, failed: 0, warnings: 0 },
+        stats: { total: 0, enabled: 0, conflicts: 0, unbound: 0, passRate: 0 },
+
+        init() {
+            this.loadIntents();
+            this.loadDiagnostics();
+        },
+
+        // Load intents
+        async loadIntents() {
+            try {
+                const resp = await fetch('/intent-routing/intents');
+                const data = await resp.json();
+                this.intents = data.intents || [];
+                this.stats = data.stats || this.stats;
+                this.filteredIntents = [...this.intents];
+                this.updateStats();
+            } catch(e) {
+                console.error('Failed to load intents:', e);
+            }
+        },
+
+        updateStats() {
+            this.stats.total = this.intents.length;
+            this.stats.enabled = this.intents.filter(i => i.status === 'enabled').length;
+            this.stats.conflicts = this.intents.filter(i => i.conflict).length;
+            this.stats.unbound = this.intents.filter(i => !i.route_target).length;
+            // TODO: Calculate pass rate from test results
+            this.stats.passRate = this.intents.length > 0 ? 86 : 0;
+        },
+
+        applyFilters() {
+            let filtered = [...this.intents];
+            if (this.filters.status) {
+                filtered = filtered.filter(i => {
+                    if (this.filters.status === 'enabled') return i.status === 'enabled';
+                    if (this.filters.status === 'draft') return i.status === 'draft';
+                    if (this.filters.status === 'conflict') return i.conflict;
+                    if (this.filters.status === 'unbound') return !i.route_target;
+                    if (this.filters.status === 'failed') return i.test_failed;
+                    return true;
+                });
+            }
+            if (this.filters.search) {
+                const search = this.filters.search.toLowerCase();
+                filtered = filtered.filter(i =>
+                    (i.name || '').toLowerCase().includes(search) ||
+                    (i.display_name || '').toLowerCase().includes(search) ||
+                    (i.description || '').toLowerCase().includes(search) ||
+                    (i.route_target || '').toLowerCase().includes(search)
+                );
+            }
+            this.filteredIntents = filtered;
+        },
+
+        // Create new intent
+        createNewIntent() {
+            this.selectedIntent = {
+                id: 'new_' + Date.now(),
+                name: '',
+                display_name: '',
+                description: '',
+                status: 'draft',
+                priority: 50,
+                domain: '',
+                route_type: 'skill',
+                route_target: '',
+                fallback_action: 'ask_missing_slot',
+                failure_action: 'human_handoff',
+                semantic_enabled: true,
+                keyword_boost_enabled: false,
+                regex_enabled: false,
+                include_keywords: [],
+                exclude_keywords: [],
+                positive_examples: [],
+                negative_examples: [],
+                edge_examples: [],
+                slots: [],
+                test_cases: [],
+                _isNew: true,
+                _dirty: false,
+            };
+            this.exampleTab = 'positive';
+        },
+
+        // Select intent
+        selectIntent(intent) {
+            this.selectedIntent = JSON.parse(JSON.stringify(intent));
+            this.selectedIntent._isNew = false;
+            this.selectedIntent._dirty = false;
+            this.exampleTab = 'positive';
+        },
+
+        markDirty() {
+            if (this.selectedIntent) {
+                this.selectedIntent._dirty = true;
+            }
+        },
+
+        // Save intent
+        async saveIntent() {
+            if (!this.selectedIntent.name.trim()) {
+                this.showToast('请填写 Intent Name', 'error');
+                return;
+            }
+            this.saving = true;
+            try {
+                const method = this.selectedIntent._isNew ? 'POST' : 'PUT';
+                const url = this.selectedIntent._isNew
+                    ? '/intent-routing/intents'
+                    : `/intent-routing/intents/${this.selectedIntent.id}`;
+                const resp = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.selectedIntent),
+                });
+                if (resp.ok) {
+                    await this.loadIntents();
+                    this.selectedIntent._isNew = false;
+                    this.selectedIntent._dirty = false;
+                    this.showToast('保存成功', 'success');
+                } else {
+                    this.showToast('保存失败', 'error');
+                }
+            } catch(e) {
+                this.showToast('保存失败: ' + e.message, 'error');
+            }
+            this.saving = false;
+        },
+
+        // Delete intent
+        async deleteIntent() {
+            if (!confirm('确定要删除此意图吗？')) return;
+            try {
+                const resp = await fetch(`/intent-routing/intents/${this.selectedIntent.id}`, { method: 'DELETE' });
+                if (resp.ok) {
+                    this.selectedIntent = null;
+                    await this.loadIntents();
+                    this.showToast('已删除', 'success');
+                }
+            } catch(e) {
+                this.showToast('删除失败', 'error');
+            }
+        },
+
+        // Examples management
+        addExample(type) {
+            const ex = this.newExample[type];
+            if (!ex.trim()) return;
+            const key = type === 'positive' ? 'positive_examples' : type === 'negative' ? 'negative_examples' : 'edge_examples';
+            if (!this.selectedIntent[key]) this.selectedIntent[key] = [];
+            this.selectedIntent[key].push(ex.trim());
+            this.newExample[type] = '';
+            this.markDirty();
+        },
+
+        removeExample(type, idx) {
+            const key = type === 'positive' ? 'positive_examples' : type === 'negative' ? 'negative_examples' : 'edge_examples';
+            this.selectedIntent[key].splice(idx, 1);
+            this.markDirty();
+        },
+
+        // Keywords management
+        addKeyword(type) {
+            const kw = this.newKeyword[type];
+            if (!kw.trim()) return;
+            const key = type === 'include' ? 'include_keywords' : 'exclude_keywords';
+            if (!this.selectedIntent[key]) this.selectedIntent[key] = [];
+            if (!this.selectedIntent[key].includes(kw.trim())) {
+                this.selectedIntent[key].push(kw.trim());
+            }
+            this.newKeyword[type] = '';
+            this.markDirty();
+        },
+
+        removeKeyword(type, idx) {
+            const key = type === 'include' ? 'include_keywords' : 'exclude_keywords';
+            this.selectedIntent[key].splice(idx, 1);
+            this.markDirty();
+        },
+
+        // Slots management
+        addSlot() {
+            if (!this.selectedIntent.slots) this.selectedIntent.slots = [];
+            this.selectedIntent.slots.push({
+                slot_name: '',
+                required: true,
+                source: 'user_input',
+                missing_action: 'ask',
+                ask_template: '',
+            });
+            this.markDirty();
+        },
+
+        removeSlot(idx) {
+            this.selectedIntent.slots.splice(idx, 1);
+            this.markDirty();
+        },
+
+        getSlotSummary() {
+            if (!this.selectedIntent.slots || this.selectedIntent.slots.length === 0) return '无需槽位';
+            const required = this.selectedIntent.slots.filter(s => s.required);
+            if (required.length === 0) return '无需必填槽位';
+            return required.map(s => s.slot_name).join(', ');
+        },
+
+        // Test cases
+        addTestCase() {
+            if (!this.selectedIntent.test_cases) this.selectedIntent.test_cases = [];
+            this.selectedIntent.test_cases.push({
+                input: '',
+                expected_intent: this.selectedIntent.name,
+                expected_route_target: this.selectedIntent.route_target || '',
+                expected_action: 'ask_missing_slot',
+                status: 'pending',
+            });
+            this.markDirty();
+        },
+
+        removeTestCase(idx) {
+            this.selectedIntent.test_cases.splice(idx, 1);
+            this.markDirty();
+        },
+
+        getTestStatusText(status) {
+            const map = { passed: '通过', failed: '失败', pending: '待测试' };
+            return map[status] || '待测试';
+        },
+
+        // Quick test
+        async runQuickTest() {
+            if (!this.testMessage.trim()) {
+                this.showToast('请输入测试消息', 'error');
+                return;
+            }
+            this.testing = true;
+            this.testResult = null;
+            try {
+                const resp = await fetch('/intent-routing/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: this.testMessage,
+                        user_profile: this.testUserProfile,
+                    }),
+                });
+                this.testResult = await resp.json();
+            } catch(e) {
+                this.showToast('测试失败: ' + e.message, 'error');
+            }
+            this.testing = false;
+        },
+
+        testIntent() {
+            // Switch to quick test panel and use first positive example
+            if (this.selectedIntent.positive_examples && this.selectedIntent.positive_examples.length > 0) {
+                this.testMessage = this.selectedIntent.positive_examples[0];
+                this.runQuickTest();
+            }
+        },
+
+        getNextActionText(action) {
+            const map = {
+                ask_missing_slot: '向用户追问缺失信息',
+                skip: '跳过当前步骤',
+                human_handoff: '转接人工客服',
+                fixed_reply: '返回固定回复',
+                reject: '拒绝执行',
+            };
+            return map[action] || action;
+        },
+
+        // Diagnostics
+        async loadDiagnostics() {
+            try {
+                const resp = await fetch('/intent-routing/diagnostics');
+                this.diagnostics = await resp.json();
+                this.updatePublishChecks();
+            } catch(e) {
+                console.error('Failed to load diagnostics:', e);
+            }
+        },
+
+        async runDiagnostics() {
+            this.diagnosing = true;
+            try {
+                const resp = await fetch('/intent-routing/diagnose', { method: 'POST' });
+                this.diagnostics = await resp.json();
+                this.updatePublishChecks();
+            } catch(e) {
+                console.error('Failed to run diagnostics:', e);
+            }
+            this.diagnosing = false;
+        },
+
+        updatePublishChecks() {
+            let passed = 0, failed = 0, warnings = 0;
+            for (const issue of this.diagnostics.issues) {
+                if (issue.level === 'error') failed++;
+                else if (issue.level === 'warning') warnings++;
+            }
+            passed = this.stats.total - failed;
+            this.publishChecks = { passed: Math.max(0, passed), failed, warnings };
+        },
+
+        getScoreColor(score) {
+            if (score >= 80) return '#10b981';
+            if (score >= 60) return '#f59e0b';
+            return '#eb3349';
+        },
+
+        getStatusClass(intent) {
+            if (intent.status === 'draft') return 'status-draft';
+            if (intent.conflict) return 'status-conflict';
+            if (!intent.route_target) return 'status-unbound';
+            if (intent.test_failed) return 'status-failed';
+            return 'status-enabled';
+        },
+
+        getStatusText(intent) {
+            if (intent.status === 'draft') return '草稿';
+            if (intent.conflict) return '存在冲突';
+            if (!intent.route_target) return '未绑定 Skill';
+            if (intent.test_failed) return '测试失败';
+            return '已启用';
+        },
+
+        showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `<span>${message}</span><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        },
+    };
+}
+</script>

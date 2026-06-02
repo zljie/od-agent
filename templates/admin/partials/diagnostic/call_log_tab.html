@@ -1,0 +1,45 @@
+<!-- 调用日志 Tab -->
+{% if tool_calls %}
+    {% for call in tool_calls %}
+    <div style="margin-bottom: 1rem; padding: 1rem; background: var(--surface-secondary); border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+            <strong>{{ call.skill_name }}</strong>
+            <span class="status-badge {% if call.status == 'success' %}status-success{% elif call.status == 'error' %}status-error{% else %}status-warning{% endif %}">
+                {{ call.status }}
+            </span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">
+            Tool: {{ call.tool_name }} | 耗时: {{ call.latency_ms }}ms
+        </div>
+        {% if call.input_data %}
+        <details style="margin-top: 0.5rem;">
+            <summary style="cursor: pointer; font-size: 0.8rem;">输入数据</summary>
+            <pre style="background: var(--surface-tertiary); padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;">{{ call.input_data | tojson }}</pre>
+        </details>
+        {% endif %}
+        {% if call.output_data %}
+        <details style="margin-top: 0.5rem;">
+            <summary style="cursor: pointer; font-size: 0.8rem;">输出数据</summary>
+            <pre style="background: var(--surface-tertiary); padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;">{{ call.output_data | tojson }}</pre>
+        </details>
+        {% endif %}
+        {% if call.error_message %}
+        <div style="color: #ef4444; font-size: 0.8rem; margin-top: 0.5rem;">
+            Error: {{ call.error_message }}
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+{% else %}
+    <div style="padding: 1rem; background: var(--surface-secondary); border-radius: 8px;">
+        <p style="color: var(--text-muted);">无工具调用记录</p>
+        <p style="font-size: 0.8rem; margin-top: 0.5rem;">
+            当前对话未触发任何工具调用。
+            {% if decision == 'slot_missing' %}
+            原因：缺少必要字段。
+            {% elif decision == 'delegate_llm' %}
+            原因：无技能匹配，委托 LLM 处理。
+            {% endif %}
+        </p>
+    </div>
+{% endif %}
