@@ -1,37 +1,74 @@
-"""Step 3: Task Planning for the 5-step pipeline."""
+"""Step 3: Task Planning for the 5-step pipeline.
+
+PHASE 4: Action Planning (formerly "Task Planning")
+================================================
+
+Step 3's role has been upgraded from "Task Planning" to "Action Planning".
+
+Before (Phase 3):
+    Planner = Action Mapping (often re-guessed the action)
+
+After (Phase 4):
+    Planner = Parameter Completer (uses Semantic Contract's action)
+
+Key changes:
+1. The action from Semantic Contract is the SINGLE SOURCE OF TRUTH
+2. Planner's job is to COMPLETE the parameters:
+   - Resolve time ranges (最近3个月 → date_from, date_to)
+   - Map display values to field codes (销售部 → department_code)
+   - Fill in missing business logic parameters
+3. Planner CANNOT change the action
+4. Action Drift Detection: if planner wants to use a different action, flag it
+
+This prevents "Semantic Collapse" where the high-confidence action from
+Step 1 gets overwritten by planner's guesswork.
+"""
 
 from typing import List, Dict, Any, Optional
-from .models import TaskPlanResult, PlannedActionItem, QueryConditionItem
+from .models import TaskPlanResult, PlannedActionItem, QueryConditionItem, SemanticContract
 
 
 class Step3TaskPlanner:
-    """Step 3: Task Planning.
+    """Step 3: Action Planning.
 
-    Generates the task execution plan based on intent and ontology results.
+    Generates the task execution plan based on Semantic Contract and ontology results.
     Includes user-readable plan summary generation.
+
+    Phase 4 Changes:
+    - Uses Semantic Contract action as the single source of truth
+    - Planner completes parameters, not re-maps actions
+    - Detects and reports action drift
     """
 
     def __init__(self):
         self._plan_summary: Optional[str] = None
+        self._action_drift_detected: bool = False
+        self._drift_reason: str = ""
 
     def plan(self, intent_result, ontology_result) -> TaskPlanResult:
-        """Generate a task execution plan.
+        """Generate a task execution plan using Semantic Contract.
 
         Args:
-            intent_result: Result from Step 1
-            ontology_result: Result from Step 2
+            intent_result: Result from Step 1 (contains Semantic Contract)
+            ontology_result: Result from Step 2 (contains ontology expansion)
 
         Returns:
             TaskPlanResult with planned actions and user-readable summary
         """
-        # Generate action sequence
-        actions = self._generate_action_sequence(intent_result, ontology_result)
+        # PHASE 4: Extract Semantic Contract
+        semantic_contract = getattr(intent_result, 'semantic_contract', None)
 
-        # Build query conditions
-        query_conditions = self._build_query_conditions(intent_result, ontology_result)
+        # Generate action sequence (uses Semantic Contract action)
+        actions = self._generate_action_sequence(intent_result, ontology_result, semantic_contract)
+
+        # Check for action drift
+        self._check_action_drift(intent_result, ontology_result, semantic_contract, actions)
+
+        # Build query conditions (uses Semantic Contract slots)
+        query_conditions = self._build_query_conditions(intent_result, ontology_result, semantic_contract)
 
         # Build aggregation rules
-        aggregation_rules = self._build_aggregation_rules(intent_result, ontology_result)
+        aggregation_rules = self._build_aggregation_rules(intent_result, ontology_result, semantic_contract)
 
         # Determine display fields
         display_fields = self._determine_display_fields(ontology_result)
@@ -43,7 +80,7 @@ class Step3TaskPlanner:
         requires_confirmation = intent_result.requires_confirmation
 
         # Generate user-readable plan summary
-        plan_summary = self._generate_user_summary(intent_result, ontology_result, actions, query_conditions)
+        plan_summary = self._generate_user_summary(intent_result, ontology_result, actions, query_conditions, semantic_contract)
 
         result = TaskPlanResult(
             planned_actions=actions,
@@ -54,38 +91,74 @@ class Step3TaskPlanner:
             requires_confirmation=requires_confirmation,
             plan_summary=plan_summary,
         )
-        
+
+        # Store Semantic Contract reference for diagnostics
+        result.semantic_contract = semantic_contract
+        result.action_drift_detected = self._action_drift_detected
+        result.drift_reason = self._drift_reason
+
         # Store the summary for later retrieval
         self._plan_summary = plan_summary
-        
+
         return result
+
+    def _check_action_drift(
+        self,
+        intent_result,
+        ontology_result,
+        semantic_contract: Optional[SemanticContract],
+        actions: List[PlannedActionItem]
+    ):
+        """Detect if the planned action differs from Semantic Contract's action."""
+        self._action_drift_detected = False
+        self._drift_reason = ""
+
+        if not semantic_contract:
+            return
+
+        if not actions:
+            return
+
+        planned_action = actions[0].action_id
+
+        # Check if planned action matches Semantic Contract action
+        if planned_action != semantic_contract.action:
+            # Allow generic list actions if Semantic Contract has analytics action
+            if semantic_contract.action.startswith("analytics/") and "/list" in planned_action:
+                self._action_drift_detected = True
+                self._drift_reason = (
+                    f"Semantic Contract action '{semantic_contract.action}' "
+                    f"被替换为 '{planned_action}'"
+                )
+                print(f"[Step3][WARNING] Action Drift Detected: {self._drift_reason}")
 
     def _generate_user_summary(
         self, 
         intent_result, 
         ontology_result,
         actions: List[PlannedActionItem],
-        query_conditions: List[QueryConditionItem]
+        query_conditions: List[QueryConditionItem],
+        semantic_contract: Optional[SemanticContract] = None
     ) -> str:
         """Generate a user-readable summary of the execution plan.
-        
-        This summary helps users understand what the agent will do next,
-        providing transparency and the opportunity to correct misunderstandings.
+
+        PHASE 4: Uses Semantic Contract info if available.
         """
         # Try LLM-powered generation first
-        llm_summary = self._llm_generate_summary(intent_result, ontology_result, actions, query_conditions)
+        llm_summary = self._llm_generate_summary(intent_result, ontology_result, actions, query_conditions, semantic_contract)
         if llm_summary:
             return llm_summary
-        
+
         # Fallback to template-based summary
-        return self._template_summary(intent_result, ontology_result, actions, query_conditions)
+        return self._template_summary(intent_result, ontology_result, actions, query_conditions, semantic_contract)
 
     def _llm_generate_summary(
         self,
         intent_result,
         ontology_result,
         actions: List[PlannedActionItem],
-        query_conditions: List[QueryConditionItem]
+        query_conditions: List[QueryConditionItem],
+        semantic_contract: Optional[SemanticContract] = None
     ) -> Optional[str]:
         """Use LLM to generate a user-friendly plan summary."""
         import asyncio
@@ -93,7 +166,7 @@ class Step3TaskPlanner:
         try:
             from ..models import get_default_model
 
-            # Build context
+            # PHASE 4: Build enhanced context with Semantic Contract
             action_list = "\n".join([
                 f"- {a.action_label}: {a.description}"
                 for a in actions
@@ -104,6 +177,22 @@ class Step3TaskPlanner:
                 for c in query_conditions
             ]) if query_conditions else "（无过滤条件）"
 
+            # PHASE 4: Add Semantic Contract context
+            semantic_context = ""
+            if semantic_contract:
+                semantic_context = f"""
+
+## Semantic Contract (Single Source of Truth)
+- Object: {semantic_contract.object} ({semantic_contract.object_label})
+- Action: {semantic_contract.action} ({semantic_contract.action_label})
+- Confidence: {semantic_contract.confidence:.2%}
+- Slots: {', '.join(semantic_contract.slots.keys()) if semantic_contract.slots else 'None'}
+"""
+                if semantic_contract.alternatives:
+                    semantic_context += "\n## Alternative Actions (not selected):\n"
+                    for alt in semantic_contract.alternatives[:3]:
+                        semantic_context += f"- {alt.get('intent_id')} (confidence: {alt.get('confidence', 0):.2%})\n"
+
             prompt = f"""将以下执行计划转化为用户可理解的自然语言描述。
 
 ## 用户意图
@@ -111,6 +200,7 @@ class Step3TaskPlanner:
 
 ## 业务对象
 {ontology_result.object_label}
+{semantic_context}
 
 ## 将执行的操作
 {action_list}
@@ -150,47 +240,102 @@ class Step3TaskPlanner:
         intent_result,
         ontology_result,
         actions: List[PlannedActionItem],
-        query_conditions: List[QueryConditionItem]
+        query_conditions: List[QueryConditionItem],
+        semantic_contract: Optional[SemanticContract] = None
     ) -> str:
         """Template-based summary fallback."""
         parts = []
-        
-        # What will be queried - use object_label from ontology_result or object_term from intent_result
-        object_label = ontology_result.object_label if ontology_result.object_label != "未知对象" else getattr(intent_result, 'object_term', '业务对象')
-        if object_label:
-            parts.append(f"查询 {object_label} 数据")
-        
+
+        # PHASE 4: Use Semantic Contract info if available
+        if semantic_contract:
+            # Use Semantic Contract's action label for more accurate description
+            action_label = semantic_contract.action_label
+            if actions:
+                action_label = actions[0].action_label
+            parts.append(f"查询 {semantic_contract.object_label or '业务数据'}")
+            parts.append(f"，执行「{action_label}」")
+        else:
+            # Legacy template
+            object_label = ontology_result.object_label if ontology_result.object_label != "未知对象" else getattr(intent_result, 'object_term', '业务对象')
+            if object_label:
+                parts.append(f"查询 {object_label} 数据")
+
         # Key conditions
         if query_conditions:
             condition_parts = []
-            for cond in query_conditions[:3]:  # Limit to 3 conditions
+            for cond in query_conditions[:3]:
                 if cond.label:
                     condition_parts.append(cond.label)
                 else:
                     condition_parts.append(f"{cond.field} {cond.operator} {cond.value}")
-            
+
             if condition_parts:
                 parts.append(f"，条件：{'、'.join(condition_parts)}")
-        
-        # Action description
-        if actions:
-            primary_action = actions[0]
-            parts.append(f"，将执行「{primary_action.action_label}」")
-        
+
         # Add time expectation
         parts.append("。预计耗时 1-3 秒。")
-        
+
         return "".join(parts)
+
+    def _build_aggregation_rules(
+        self,
+        intent_result,
+        ontology_result,
+        semantic_contract: Optional[SemanticContract] = None
+    ) -> List[Dict[str, Any]]:
+        """Build aggregation/statistics rules."""
+        rules = []
+
+        # PHASE 4: Check Semantic Contract for specific analytics actions
+        if semantic_contract and semantic_contract.action:
+            if semantic_contract.action == "analytics/find_unexecuted_purchase_requests":
+                rules.extend([
+                    {"type": "count", "fields": [], "label": "总数量"},
+                    {"type": "group_by", "fields": ["apply_dep"], "label": "按申请部门统计"},
+                    {"type": "group_by", "fields": ["material_d"], "label": "按物料统计"},
+                ])
+                return rules
+
+        # Legacy path
+        if intent_result.intent == "procurement/query_open_pr":
+            rules.extend([
+                {"type": "count", "fields": [], "label": "总数量"},
+                {"type": "group_by", "fields": ["apply_dep"], "label": "按申请部门统计"},
+                {"type": "group_by", "fields": ["material_d"], "label": "按物料统计"},
+            ])
+
+        return rules
 
     def get_plan_summary(self) -> str:
         """Get the last generated plan summary."""
         return self._plan_summary or "执行计划已生成"
 
-    def _generate_action_sequence(self, intent_result, ontology_result) -> List[PlannedActionItem]:
-        """Generate the sequence of actions to execute."""
+    def _generate_action_sequence(
+        self,
+        intent_result,
+        ontology_result,
+        semantic_contract: Optional[SemanticContract] = None
+    ) -> List[PlannedActionItem]:
+        """Generate the sequence of actions to execute.
+
+        PHASE 4: Uses Semantic Contract action as the single source of truth.
+        """
         actions = []
 
-        # Map intent to action ID
+        # PHASE 4: Use Semantic Contract action if available
+        if semantic_contract and semantic_contract.action:
+            action_id = semantic_contract.action
+            action_label = semantic_contract.action_label or self._get_action_label(action_id)
+            actions.append(PlannedActionItem(
+                sequence=1,
+                action_id=action_id,
+                action_label=action_label,
+                connector="ProcurementConnector",
+                description=self._get_action_description(intent_result, ontology_result, action_id),
+            ))
+            return actions
+
+        # Legacy path: no Semantic Contract
         action_id = self._get_action_for_intent(intent_result, ontology_result)
 
         if action_id:
@@ -204,7 +349,6 @@ class Step3TaskPlanner:
 
         # Add additional actions based on intent type
         if intent_result.operation_type == "create":
-            # Add pre-validation step
             actions.insert(0, PlannedActionItem(
                 sequence=1,
                 action_id="validate_before_create",
@@ -212,7 +356,6 @@ class Step3TaskPlanner:
                 connector="PolicyEngine",
                 description="执行创建前规则校验",
             ))
-            # Renumber
             for i, action in enumerate(actions):
                 action.sequence = i + 1
 
@@ -305,13 +448,93 @@ class Step3TaskPlanner:
         }
         return descriptions.get(action_id, f"执行 {self._get_action_label(action_id)}")
 
-    def _build_query_conditions(self, intent_result, ontology_result) -> List[QueryConditionItem]:
+    def _build_query_conditions(
+        self,
+        intent_result,
+        ontology_result,
+        semantic_contract: Optional[SemanticContract] = None
+    ) -> List[QueryConditionItem]:
         """Build query filter conditions.
-        
-        Enhanced to handle:
-        - Time range from intent_result.temporal_context
-        - Business conditions from intent_result.extracted_slots
+
+        PHASE 4: Uses Semantic Contract slots as the primary source.
+        Supplements with extracted_slots from intent_result.
         """
+        conditions = []
+
+        # PHASE 4: Use Semantic Contract slots if available
+        if semantic_contract and semantic_contract.slots:
+            conditions = self._build_conditions_from_semantic_contract(semantic_contract)
+            return conditions
+
+        # Legacy path: no Semantic Contract, use extracted_slots
+        conditions = self._build_conditions_from_slots(intent_result)
+        return conditions
+
+    def _build_conditions_from_semantic_contract(
+        self,
+        semantic_contract: SemanticContract
+    ) -> List[QueryConditionItem]:
+        """Build query conditions from Semantic Contract slots.
+
+        This is the Phase 4 primary path for condition building.
+        """
+        conditions = []
+
+        # Base condition: exclude deleted records
+        conditions.append(QueryConditionItem(
+            field="delete_flag",
+            operator="=",
+            value="0",
+            label="排除已删除"
+        ))
+
+        # Build conditions from Semantic Contract slots
+        for slot_name, slot in semantic_contract.slots.items():
+            condition = self._slot_to_condition(slot_name, slot)
+            if condition:
+                conditions.append(condition)
+
+        # Handle special analytics actions
+        if semantic_contract.action == "analytics/find_unexecuted_purchase_requests":
+            # Add unexecuted filter (business logic)
+            conditions.append(QueryConditionItem(
+                field="flow_status",
+                operator="IN",
+                value="['S0', 'APPROVED']",
+                label="已审批待执行"
+            ))
+
+        return conditions
+
+    def _slot_to_condition(self, slot_name: str, slot) -> Optional[QueryConditionItem]:
+        """Convert a SemanticContractSlot to a QueryConditionItem."""
+        # Map slot names to field names and operators
+        slot_mappings = {
+            "department": ("apply_dep", "=", slot.display_value, f"申请部门：{slot.display_value}"),
+            "apply_dep": ("apply_dep", "=", slot.display_value, f"申请部门：{slot.display_value}"),
+            "date_range": None,  # Special handling for time ranges
+            "time_label": None,  # Will be handled by time_date_from/time_date_to
+            "time_date_from": None,  # Will be combined with time_date_to
+            "time_date_to": None,  # Will be combined with time_date_from
+            "execution_status": ("flow_status", "=", slot.display_value, f"状态：{slot.display_value}"),
+            "pr_type": ("pr_type", "=", slot.display_value, f"采购类型：{slot.display_value}"),
+            "material_category": ("material_category", "=", slot.display_value, f"物料分类：{slot.display_value}"),
+        }
+
+        mapping = slot_mappings.get(slot_name)
+        if not mapping:
+            return None
+
+        field, operator, value, label = mapping
+        return QueryConditionItem(
+            field=field,
+            operator=operator,
+            value=value,
+            label=label
+        )
+
+    def _build_conditions_from_slots(self, intent_result) -> List[QueryConditionItem]:
+        """Build query conditions from extracted_slots (legacy path)."""
         conditions = []
 
         # Base condition: exclude deleted records
@@ -333,7 +556,6 @@ class Step3TaskPlanner:
                     label=f"需求日期：{ctx.get('label', '时间范围')}"
                 ))
             elif ctx.get('resolved_date'):
-                # Single date
                 conditions.append(QueryConditionItem(
                     field="delivery_date",
                     operator="=",
@@ -354,7 +576,7 @@ class Step3TaskPlanner:
                     label=f"采购类型：{slots['pr_type']}"
                 ))
 
-            # Material category filter (maps to material_d or a category field)
+            # Material category filter
             if slots.get('material_category'):
                 conditions.append(QueryConditionItem(
                     field="material_category",
@@ -376,7 +598,6 @@ class Step3TaskPlanner:
             # Execution status filter
             if slots.get('execution_status'):
                 status = slots['execution_status']
-                # Map display status to flow_status values
                 status_map = {
                     "未执行": None,  # Will be handled by connector logic
                     "已执行": "EXECUTED",
@@ -404,7 +625,12 @@ class Step3TaskPlanner:
 
         return conditions
 
-    def _build_aggregation_rules(self, intent_result, ontology_result) -> List[Dict[str, Any]]:
+    def _build_aggregation_rules(
+        self,
+        intent_result,
+        ontology_result,
+        semantic_contract: Optional[SemanticContract] = None
+    ) -> List[Dict[str, Any]]:
         """Build aggregation/statistics rules."""
         rules = []
 

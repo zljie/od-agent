@@ -5,6 +5,7 @@
 
 import json
 import re
+import time as _time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 
@@ -87,9 +88,15 @@ class IntentRouter:
 请以JSON格式返回（不要有其他内容）：
 {{"intent_id": "...", "confidence": 0.0-1.0, "extracted_params": {{"pr_id": "...", "po_id": "...", ...}}, "reasoning": "..."}}
 """
+            print(f"[IntentRouter] LLM调用开始 | input_len={len(message)} | thinking_budget=500")
+            llm_start = _time.time()
             response = model.generate(prompt, thinking_budget=500)
+            llm_elapsed = (_time.time() - llm_start) * 1000
             if not response:
+                print(f"[IntentRouter] LLM调用完成 | elapsed_ms={llm_elapsed:.1f} | response为空")
                 return None
+            print(f"[IntentRouter] LLM调用完成 | elapsed_ms={llm_elapsed:.1f} | response_len={len(response)}")
+            print(f"[IntentRouter] LLM原始响应: {response[:300]}...")
 
             # 解析 JSON 响应
             result = json.loads(response.strip())

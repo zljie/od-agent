@@ -1,0 +1,24 @@
+{
+  "approval_history": [
+    {
+      "history_id": "HIST-WF-20260528-0001-1",
+      "workflow_id": "WF-20260528-0001",
+      "step": 1,
+      "action": "approve",
+      "approver_id": "approver001",
+      "approver_name": "审批管理员",
+      "comment": "报价合理，同意",
+      "action_time": "2025-05-28T14:30:00"
+    },
+    {
+      "history_id": "HIST-WF-20260530-0001-1",
+      "workflow_id": "WF-20260530-0001",
+      "step": 1,
+      "action": "approve",
+      "approver_id": "approver002",
+      "approver_name": "财务审批员",
+      "comment": "金额核实无误，同意",
+      "action_time": "2025-05-30T15:00:00"
+    }
+  ]
+}

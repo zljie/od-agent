@@ -573,41 +573,53 @@ class ProcurementSlotExtractor:
     
     def extract(self, message: str) -> ExtractedSlots:
         """从消息中提取所有槽位"""
+        print(f"[ProcurementSlotExtractor][INFO] 槽位提取开始 | input='{message}'")
         slots = ExtractedSlots()
         
         # 1. 提取时间范围
         time_range = self.time_extractor.extract(message)
         if time_range:
             slots.time_range = time_range
-        
+            print(f"[ProcurementSlotExtractor][INFO] 时间范围提取成功 | label={time_range.label} | from={time_range.date_from} | to={time_range.date_to}")
+        else:
+            print(f"[ProcurementSlotExtractor][DEBUG] 时间范围未提取到 | input='{message}'")
+
         # 2. 提取物料分类
         material = self.material_extractor.extract(message)
         if material:
             slots.material_category = material
-        
+            print(f"[ProcurementSlotExtractor][INFO] 物料分类提取成功 | value={material.value}")
+
         # 3. 提取采购类型
         pr_type = self.pr_type_extractor.extract(message)
         if pr_type:
             slots.pr_type = pr_type
-        
+            print(f"[ProcurementSlotExtractor][INFO] 采购类型提取成功 | value={pr_type.value}")
+
         # 4. 提取部门
         department = self.department_extractor.extract(message)
         if department:
             slots.department = department
-        
+            print(f"[ProcurementSlotExtractor][INFO] 部门提取成功 | value={department.value}")
+
         # 5. 提取执行状态
         status = self.status_extractor.extract(message)
         if status:
             slots.execution_status = status
-        
+            print(f"[ProcurementSlotExtractor][INFO] 执行状态提取成功 | value={status.value}")
+        else:
+            print(f"[ProcurementSlotExtractor][DEBUG] 执行状态未提取到 | input='{message}'")
+
         # 6. 提取供应商
         vendor = self.vendor_extractor.extract(message)
         if vendor:
             slots.vendor_name = vendor
-        
+            print(f"[ProcurementSlotExtractor][INFO] 供应商提取成功 | value={vendor.value}")
+
         # 7. 提取其他槽位 (ID类)
         slots.other_slots = self._extract_id_slots(message)
-        
+
+        print(f"[ProcurementSlotExtractor][INFO] 槽位提取完成 | time={'✓' if slots.time_range else '✗'} | material={'✓' if slots.material_category else '✗'} | pr_type={'✓' if slots.pr_type else '✗'} | dept={'✓' if slots.department else '✗'} | status={'✓' if slots.execution_status else '✗'} | vendor={'✓' if slots.vendor_name else '✗'}")
         return slots
     
     def _extract_id_slots(self, message: str) -> Dict[str, Any]:

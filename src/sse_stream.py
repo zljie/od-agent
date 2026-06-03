@@ -485,12 +485,15 @@ def confirm_request(
     cancel_label: str = "取消",
     risk_level: str = "medium",
     affected_records: Optional[List[Dict[str, Any]]] = None,
+    detail: Optional[str] = None,
+    alternatives: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     payload = ConfirmRequestPayload(
         step=step, title=title, message=message,
         action={"id": "confirm", "label": action_label},
         cancel_action={"id": "cancel", "label": cancel_label},
-        risk_level=risk_level, affected_records=affected_records
+        risk_level=risk_level, affected_records=affected_records,
+        detail=detail, alternatives=alternatives
     )
     return payload.to_event()
 
