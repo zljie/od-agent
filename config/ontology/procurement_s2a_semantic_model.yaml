@@ -1,4 +1,4 @@
-version: "0.1.2"
+version: "0.1.3"
 semantic_model:
 - name: procurement_s2a_assistant
   description: 采购助手 Source-to-Award 业务对象图谱，覆盖采购需求、询价、报价、比价、采购订单与收货执行闭环。
@@ -35,6 +35,33 @@ semantic_model:
       - 请购单
       - PR
       - Purchase Request
+      - 采购计划
+      - 物料需求
+    execution_status_values:
+      description: 执行状态枚举值
+      values:
+        pending: 未执行 - 已审批但尚未生成采购订单行项目
+        partial: 部分执行 - 已生成采购订单但未全部收货
+        completed: 已完成 - 采购订单行项目已全部收货
+        cancelled: 已取消 - 采购需求已撤销
+    source_type_values:
+      description: 来源类型枚举值
+      values:
+        system: 系统接口集成 - ERP/MES等系统自动创建
+        manual: 手工创建 - 用户手动录入
+        batch: 批导 - Excel批量导入
+    material_category_values:
+      description: 物料分类枚举值
+      values:
+        office: 办公用品
+        production: 生产物料
+        it: IT设备
+        engineering: 工程物资
+        furniture: 办公家具
+        labor: 劳保用品
+        spare: 备品备件
+        packaging: 包装材料
+        other: 其他
     fields:
     - name: pr_id
       type: String
@@ -150,6 +177,44 @@ semantic_model:
         - dialect: ANSI_SQL
           expression: purchase_requests.delete_flag
       description: 删除标记
+    - name: source_type
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.source_type
+      description: 来源类型（system-系统接口集成/manual-手工创建/batch-批导）
+      enum_values:
+      - system
+      - manual
+      - batch
+    - name: material_category
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_requests.material_category
+      description: 物料分类（办公用品/IT设备/生产物料等）
+      enum_values:
+      - office
+      - production
+      - it
+      - engineering
+      - furniture
+      - labor
+      - spare
+      - packaging
+      - other
+    - name: execution_status
+      type: String
+      expression:
+        description: 执行状态（由系统根据是否生成采购订单行项目自动计算）
+      computed: true
+      computation_logic:
+        pending: 当 purchase_order_items 中不存在对应 pr_id/pr_item 时为未执行
+        partial: 当采购订单行项目部分收货时为部分执行
+        completed: 当采购订单行项目全部收货时为已完成
+        cancelled: 当采购需求被撤销时为已取消
   - name: purchase_inquiries
     source: srm.rfq.purchase_inquiry
     primary_key:
@@ -162,6 +227,16 @@ semantic_model:
       - RFQ
       - Inquiry
       - 询源
+    publish_status_values:
+      description: 发布状态枚举值
+      values:
+        draft: 草稿 - 询价单尚未发布
+        published: 已发布 - 已发送给供应商询价
+        withdrawn: 已撤回 - 发布后撤回询价
+        closed: 已关闭 - 询价已结束
+    quotation_count_indicator:
+      description: 有效报价数量指示器
+      computation: 基于 purchase_quotations 表统计关联报价数量
     fields:
     - name: inquiry_id
       type: String
@@ -295,6 +370,18 @@ semantic_model:
         - dialect: ANSI_SQL
           expression: purchase_inquiries.delete_flag
       description: 删除标记
+    - name: publish_status
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: purchase_inquiries.publish_status
+      description: 发布状态（draft-草稿/published-已发布/withdrawn-已撤回/closed-已关闭）
+      enum_values:
+      - draft
+      - published
+      - withdrawn
+      - closed
   - name: purchase_quotations
     source: srm.rfq.purchase_quotation
     primary_key:
@@ -836,6 +923,184 @@ semantic_model:
         - dialect: ANSI_SQL
           expression: purchase_order_receipt_history.dc
       description: 借贷标记
+  - name: approval_workflows
+    source: workflow.approval.workflow_instance
+    primary_key:
+    - workflow_id
+    description: 审批工作流实例，记录采购相关审批流程的执行状态和历史。
+    ai_context:
+      synonyms:
+      - 审批流程
+      - 审批工作流
+      - 工作流实例
+    approval_status_values:
+      description: 审批状态枚举值
+      values:
+        pending: 待审批 - 等待审批人处理
+        approved: 已通过 - 审批人同意
+        rejected: 已驳回 - 审批人拒绝
+        withdrawn: 已撤回 - 申请人撤回申请
+        expired: 已过期 - 审批超时
+        cancelled: 已取消 - 流程被取消
+    approval_action_values:
+      description: 审批动作枚举值
+      values:
+        approve: 通过 - 同意申请
+        reject: 驳回 - 拒绝申请
+        transfer: 转交 - 转交给其他人审批
+        comment: 评论 - 添加审批意见
+        withdraw: 撤回 - 申请人撤回申请
+    fields:
+    - name: workflow_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.workflow_id
+      description: 工作流实例ID
+    - name: workflow_type
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.workflow_type
+      description: 工作流类型（如：报价审批、中标审批）
+    - name: related_document_type
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.related_document_type
+      description: 关联单据类型（purchase_quotation/purchase_order等）
+    - name: related_document_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.related_document_id
+      description: 关联单据ID
+    - name: current_step
+      type: Integer
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.current_step
+      description: 当前审批步骤
+    - name: total_steps
+      type: Integer
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.total_steps
+      description: 总审批步骤数
+    - name: status
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.status
+      description: 审批状态
+    - name: approver_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.approver_id
+      description: 当前审批人ID
+    - name: approver_name
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.approver_name
+      description: 当前审批人姓名
+    - name: create_time
+      type: DateTime
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.create_time
+      description: 创建时间
+    - name: update_time
+      type: DateTime
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.update_time
+      description: 更新时间
+    - name: remark
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_workflows.remark
+      description: 审批备注
+  - name: approval_history
+    source: workflow.approval.workflow_history
+    primary_key:
+    - history_id
+    description: 审批历史记录，记录每个审批节点的执行情况。
+    ai_context:
+      synonyms:
+      - 审批历史
+      - 审批记录
+    fields:
+    - name: history_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_history.history_id
+      description: 历史记录ID
+    - name: workflow_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_history.workflow_id
+      description: 工作流实例ID
+    - name: step
+      type: Integer
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_history.step
+      description: 审批步骤
+    - name: action
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_history.action
+      description: 审批动作（approve/reject/transfer/comment）
+    - name: approver_id
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_history.approver_id
+      description: 审批人ID
+    - name: approver_name
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_history.approver_name
+      description: 审批人姓名
+    - name: comment
+      type: String
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_history.comment
+      description: 审批意见
+    - name: action_time
+      type: DateTime
+      expression:
+        dialects:
+        - dialect: ANSI_SQL
+          expression: approval_history.action_time
+      description: 审批时间
   relationships:
   - name: inquiry_generated_from_purchase_request
     from: purchase_inquiries
@@ -901,6 +1166,33 @@ semantic_model:
     - po_item
     ai_context:
       description: 收货历史记录采购订单行项目的入库/退货执行
+  - name: workflow_belongs_to_quotation
+    from: approval_workflows
+    to: purchase_quotations
+    from_columns:
+    - related_document_id
+    to_columns:
+    - quotation_id
+    ai_context:
+      description: 报价审批工作流关联到报价单
+  - name: workflow_belongs_to_purchase_order
+    from: approval_workflows
+    to: purchase_order_heads
+    from_columns:
+    - related_document_id
+    to_columns:
+    - po_id
+    ai_context:
+      description: 采购订单审批工作流关联到采购订单抬头
+  - name: workflow_history_records_workflow
+    from: approval_history
+    to: approval_workflows
+    from_columns:
+    - workflow_id
+    to_columns:
+    - workflow_id
+    ai_context:
+      description: 审批历史记录属于某个工作流实例
   metrics:
   - name: purchase_request_count
     expression:
@@ -1289,6 +1581,196 @@ semantic_model:
       - 采购订单状态
       labels:
       - business_action
+    - id: approval/query_workflow_status
+      name: 查询审批工作流状态
+      description: 查询审批工作流的当前状态和审批进度。
+      kind: query
+      operation: query_workflow_status
+      entity_name: approval_workflows
+      io_schema:
+        input:
+          workflow_id: string
+          related_document_type: string
+          related_document_id: string
+        output:
+          workflow_id: string
+          status: string
+          current_step: integer
+          total_steps: integer
+          approver_name: string
+      synonyms:
+      - 审批状态查询
+      - 工作流查询
+      labels:
+      - workflow
+    - id: approval/query_workflow_history
+      name: 查询审批历史
+      description: 查询审批流程的完整历史记录。
+      kind: query
+      operation: query_workflow_history
+      entity_name: approval_history
+      io_schema:
+        input:
+          workflow_id: string
+        output:
+          history_records: array
+          summary: object
+      synonyms:
+      - 审批记录查询
+      - 审批历史查询
+      labels:
+      - workflow
+    - id: approval/submit_for_approval
+      name: 提交审批申请
+      description: 将业务单据提交到审批工作流。
+      kind: command
+      operation: submit_for_approval
+      entity_name: approval_workflows
+      io_schema:
+        input:
+          related_document_type: string
+          related_document_id: string
+          workflow_type: string
+          reason: string
+        output:
+          workflow_id: string
+          status: string
+      synonyms:
+      - 发起审批
+      - 提交审批
+      labels:
+      - workflow
+      confirmation_required: true
+    - id: approval/approve_workflow
+      name: 审批通过
+      description: 审批人批准当前审批步骤。
+      kind: command
+      operation: approve_workflow
+      entity_name: approval_history
+      io_schema:
+        input:
+          workflow_id: string
+          comment: string
+        output:
+          status: string
+          next_step: integer
+      synonyms:
+      - 审批通过
+      - 同意
+      - 批准
+      labels:
+      - workflow
+      confirmation_required: true
+    - id: approval/reject_workflow
+      name: 审批驳回
+      description: 审批人驳回当前审批步骤。
+      kind: command
+      operation: reject_workflow
+      entity_name: approval_history
+      io_schema:
+        input:
+          workflow_id: string
+          reason: string
+        output:
+          status: string
+      synonyms:
+      - 审批驳回
+      - 拒绝
+      - 不同意
+      labels:
+      - workflow
+      confirmation_required: true
+    - id: approval/withdraw_workflow
+      name: 撤回审批申请
+      description: 申请人撤回待审批的申请。
+      kind: command
+      operation: withdraw_workflow
+      entity_name: approval_workflows
+      io_schema:
+        input:
+          workflow_id: string
+        output:
+          status: string
+      synonyms:
+      - 撤回申请
+      - 取消审批
+      labels:
+      - workflow
+      confirmation_required: true
+    - id: inquiry/publish_inquiry
+      name: 发布询价单
+      description: 将询价单发布给邀请的供应商。
+      kind: command
+      operation: publish_inquiry
+      entity_name: purchase_inquiries
+      io_schema:
+        input:
+          inquiry_id: string
+          supplier_scope: array
+        output:
+          inquiry_id: string
+          publish_status: string
+      synonyms:
+      - 发布询价
+      - 发送给供应商
+      labels:
+      - rfq
+      confirmation_required: true
+    - id: inquiry/withdraw_inquiry
+      name: 撤回询价单
+      description: 撤回已发布但尚未收到报价的询价单。
+      kind: command
+      operation: withdraw_inquiry
+      entity_name: purchase_inquiries
+      io_schema:
+        input:
+          inquiry_id: string
+          reason: string
+        output:
+          inquiry_id: string
+          publish_status: string
+      synonyms:
+      - 撤回询价
+      - 取消询价
+      labels:
+      - rfq
+      confirmation_required: true
+    - id: inquiry/close_inquiry
+      name: 关闭询价单
+      description: 关闭询价单，结束询价流程。
+      kind: command
+      operation: close_inquiry
+      entity_name: purchase_inquiries
+      io_schema:
+        input:
+          inquiry_id: string
+          reason: string
+        output:
+          inquiry_id: string
+          status: string
+      synonyms:
+      - 关闭询价
+      - 结束询价
+      labels:
+      - rfq
+      confirmation_required: true
+    - id: quotation/remind_supplier
+      name: 催办供应商报价
+      description: 向尚未报价的供应商发送报价提醒。
+      kind: command
+      operation: remind_supplier
+      entity_name: purchase_inquiries
+      io_schema:
+        input:
+          inquiry_id: string
+          vendor_ids: array
+        output:
+          reminder_sent: integer
+      synonyms:
+      - 催报价
+      - 提醒供应商
+      labels:
+      - rfq
     rules:
     - id: rule/pr_approved_before_inquiry
       name: 采购需求审批后才允许询价
@@ -1385,6 +1867,141 @@ semantic_model:
       labels:
       - po
       - receipt
+    - id: rule/pr_not_deletable_after_approved
+      name: 已审批采购需求不可删除
+      description: 已审批通过的采购需求不得删除，防止业务风险。
+      severity: error
+      when:
+        entity: purchase_requests
+        operation: delete
+      constraint:
+        any_of:
+        - field: purchase_requests.flow_status
+          operator: IN
+          value:
+          - S0
+          - APPROVED
+      message: 该采购需求已审批通过，不能删除。
+      remediation: 如需作废，请先撤销审批流程。
+      labels:
+      - governance
+      - pr
+    - id: rule/pr_approval_not_revocable_after_po
+      name: 已生成采购订单的采购需求审批不可撤销
+      description: 采购需求已生成采购订单后，审批状态不可撤销。
+      severity: error
+      when:
+        entity: purchase_requests
+        operation: revoke_approval
+      constraint:
+        not_exists:
+          dataset: purchase_order_items
+          where: purchase_order_items.pr_id = purchase_requests.pr_id AND purchase_order_items.pr_item = purchase_requests.pr_item
+      message: 该采购需求已生成采购订单，不能撤销审批。
+      remediation: 如需调整，请通过采购订单变更流程处理。
+      labels:
+      - governance
+      - pr
+      - po
+    - id: rule/inquiry_not_deletable_after_published
+      name: 已发布询价单不可删除
+      description: 已发布给供应商的询价单不得删除，防止业务中断。
+      severity: error
+      when:
+        entity: purchase_inquiries
+        operation: delete
+      constraint:
+        field: purchase_inquiries.publish_status
+        operator: '!='
+        value: published
+      message: 该询价单已发布给供应商，不能直接删除。
+      remediation: 请先撤回询价发布，再进行删除操作。
+      labels:
+      - rfq
+      - inquiry
+    - id: rule/inquiry_not_withdrawable_after_quotation
+      name: 已收到报价的询价单不可撤回
+      description: 询价单已有供应商报价后不可撤回。
+      severity: error
+      when:
+        entity: purchase_inquiries
+        operation: withdraw
+      constraint:
+        not_exists:
+          dataset: purchase_quotations
+          where: purchase_quotations.inquiry_id = purchase_inquiries.inquiry_id AND purchase_quotations.inquiry_item = purchase_inquiries.inquiry_item
+      message: 该询价单已有供应商报价，不能撤回。
+      remediation: 如需终止询价，请关闭询价单而非撤回。
+      labels:
+      - rfq
+      - inquiry
+    - id: rule/quotation_not_modifiable_after_locked
+      name: 已锁定报价不可修改
+      description: 报价单被锁定后不可修改。
+      severity: error
+      when:
+        entity: purchase_quotations
+        operation: update
+      constraint:
+        field: purchase_quotations.lock_status
+        operator: '!='
+        value: locked
+      message: 该报价单已被锁定，不能修改。
+      remediation: 如需修改，请联系管理员解锁。
+      labels:
+      - quotation
+    - id: rule/quotation_not_modifiable_after_expired
+      name: 已过期报价不可修改
+      description: 价格有效期已过的报价单不可修改。
+      severity: error
+      when:
+        entity: purchase_quotations
+        operation: update
+      constraint:
+        field: purchase_quotations.price_end_date
+        operator: '>='
+        value: business_date
+      message: 该报价单价格有效期已过，不能修改。
+      remediation: 请发起新的询价流程。
+      labels:
+      - quotation
+    - id: rule/quotation_not_modifiable_after_po_created
+      name: 已生成采购订单的报价不可修改
+      description: 报价单已被采购订单引用后不可修改。
+      severity: error
+      when:
+        entity: purchase_quotations
+        operation: update
+      constraint:
+        not_exists:
+          dataset: purchase_order_items
+          where: purchase_order_items.quotation_id = purchase_quotations.quotation_id AND purchase_order_items.quotation_item = purchase_quotations.quotation_item
+      message: 该报价单已被采购订单引用，不能修改。
+      remediation: 如需调整，请通过采购订单变更流程处理。
+      labels:
+      - quotation
+      - po
+    - id: rule/approval_submit_requires_valid_recommendation
+      name: 提交审批需要有效的推荐报价
+      description: 提交中标审批前必须确认推荐报价通过所有规则校验。
+      severity: error
+      when:
+        action: procurement/submit_award_approval
+      constraint:
+        all_of:
+        - metric: quotation_supplier_count
+          operator: '>='
+          value: 1
+        - field: purchase_quotations.status
+          operator: IN
+          value:
+          - DRAFT
+          - SUBMITTED
+      message: 推荐报价未通过规则校验，不能提交审批。
+      remediation: 请先完成比价分析，确认推荐报价符合规则。
+      labels:
+      - approval
+      - quotation
     - id: rule/deleted_records_excluded_by_default
       name: 默认排除删除标记记录
       severity: info

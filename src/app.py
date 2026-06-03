@@ -2,6 +2,7 @@
 
 import json
 import os
+import warnings
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,9 @@ from starlette.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from starlette.requests import Request
+
+# Suppress httpx/httpcore event loop warnings (Python 3.13 compatibility issue)
+warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
 
 from .agent import CustomerServiceAgent, get_agent, load_agent_config, reload_agent, save_agent_config
 from .diagnostics import DiagnosticsCollector
@@ -157,6 +161,23 @@ async def lifespan(app: FastAPI):
     yield
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"{ts} 🛑 Shutting down Customer Service Agent...")
+    # Clean up httpx async clients to prevent "Event loop is closed" warnings
+    try:
+        import asyncio
+        from httpx._client import ASGITransport, AsyncClient
+
+        # Cancel any pending httpx clients
+        for name in dir():
+            obj = locals().get(name)
+            if isinstance(obj, AsyncClient):
+                try:
+                    await obj.aclose()
+                except Exception:
+                    pass
+    except ImportError:
+        pass
+    except Exception:
+        pass
 
 
 def create_app() -> FastAPI:

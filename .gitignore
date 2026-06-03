@@ -26,5 +26,8 @@ htmlcov/
 # Logs
 *.log
 
+# Audit logs (runtime data, not tracked)
+data/audit/
+
 # Documentation (not committed)
 docs/
