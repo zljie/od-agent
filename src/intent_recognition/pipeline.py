@@ -491,6 +491,11 @@ class CompositeIntentPipeline:
         if not top_obj and ontology_match.object_match:
             top_obj = ontology_match.object_match.object_name
 
+        # Build params with object_term and dimension matches
+        params = {d.dimension_name: d.value for d in llm_result.dimension_matches}
+        if top_obj:
+            params["object_term"] = top_obj
+
         candidates.append(
             IntentCandidate(
                 rank=1,
@@ -502,7 +507,7 @@ class CompositeIntentPipeline:
                     if ontology_match.matched_path_ids
                     else ""
                 ),
-                params={d.dimension_name: d.value for d in llm_result.dimension_matches},
+                params=params,
                 missing_slots=list(llm_result.missing_slots),
             )
         )

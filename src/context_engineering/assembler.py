@@ -63,7 +63,7 @@ class ContextAssembler:
             ),
             user_input=ContextUserInput(
                 raw_input=user_input,
-                normalized_input=selected.get("normalized_input", {}).get("value", user_input),
+                normalized_input=self._safe_get_value(selected, "normalized_input", "value", user_input),
             ),
             included_sources=self._extract_included_sources(selected),
             excluded_sources=[],
@@ -196,3 +196,12 @@ class ContextAssembler:
             else:
                 sources.append(key)
         return sources
+
+    def _safe_get_value(
+        self, data: Dict[str, Any], key: str, sub_key: str, default: Any
+    ) -> Any:
+        """Safely extract nested value, handling non-dict intermediate values."""
+        value = data.get(key)
+        if isinstance(value, dict):
+            return value.get(sub_key, default)
+        return default
