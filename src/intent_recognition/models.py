@@ -503,6 +503,49 @@ class ResolvedValue:
 
 
 # ---------------------------------------------------------------------------
+# Layer 2.5 — Slot Completion
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SlotCheckResult:
+    """Layer 2.5 output: slot readiness check for action execution gate.
+
+    Produced by SlotCompletionEngine; consumed by fusion_engine.fuse_abc()
+    to override confidence-based decisions when required slots are missing.
+    """
+
+    intent_template: str = ""
+    object_name: str = ""
+    action_readiness_score: float = 0.0          # 0.0–100.0
+    decision: str = "execute"                     # clarify | suggest | execute
+    filled_required: List[str] = field(default_factory=list)
+    missing_required: List[str] = field(default_factory=list)
+    filled_optional: List[str] = field(default_factory=list)
+    missing_optional: List[str] = field(default_factory=list)
+    schema_found: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "intent_template": self.intent_template,
+            "object_name": self.object_name,
+            "action_readiness_score": self.action_readiness_score,
+            "decision": self.decision,
+            "filled_required": self.filled_required,
+            "missing_required": self.missing_required,
+            "filled_optional": self.filled_optional,
+            "missing_optional": self.missing_optional,
+            "schema_found": self.schema_found,
+            "metadata": self.metadata,
+        }
+
+    @property
+    def has_missing_required(self) -> bool:
+        return len(self.missing_required) > 0
+
+
+# ---------------------------------------------------------------------------
 # Composite Result
 # ---------------------------------------------------------------------------
 
@@ -535,6 +578,7 @@ class CompositeIntentResult:
     layer_results: Dict[str, Any] = field(default_factory=dict)
     final_decision: ConfidenceDecision = ConfidenceDecision.CONTINUE
     execution_ready: bool = False
+    slot_check_result: Optional["SlotCheckResult"] = None
     task_id: str = ""
     ontology_version: str = ""
     duration_ms: float = 0.0
@@ -576,6 +620,7 @@ class CompositeIntentResult:
             "layer_results": self.layer_results,
             "final_decision": self.final_decision.value,
             "execution_ready": self.execution_ready,
+            "slot_check_result": self.slot_check_result.to_dict() if self.slot_check_result else None,
             "task_id": self.task_id,
             "ontology_version": self.ontology_version,
             "duration_ms": self.duration_ms,

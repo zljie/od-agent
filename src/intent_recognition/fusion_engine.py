@@ -13,13 +13,17 @@ Layer 3 — fuses confidence scores A (LLM light) and B (ontology match):
 Layer 5 — fuses A, B, and C (deep reasoning) scores:
     Score_ABC = A × 0.25 + B × 0.35 + C × 0.40
     Decision thresholds:
-        >= 0.75 → "continue"  (proceed to dynamic slot resolution)
-        <  0.75 → "hitl"      (trigger human-in-the-loop clarification)
+        >= 0.80 → "execute"   (slots complete AND high confidence)
+        >= 0.70 → "continue"  (slots complete, proceed)
+        <  0.70 → "clarify"  (slots missing OR low confidence → HITL)
+
+Priority Rule: missing_required_slots > 0 → "clarify"
+This overrides ALL confidence-based decisions. High confidence ≠ executable.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .models import ConfidenceDecision, ConfidenceScore
+from .models import ConfidenceDecision, ConfidenceScore, SlotCheckResult
 
 
 class ConfidenceFusionEngine:
@@ -77,8 +81,13 @@ class ConfidenceFusionEngine:
         A: float,
         B: float,
         C: float,
+        slot_check: Optional[SlotCheckResult] = None,
     ) -> Tuple[float, str]:
         """Layer 5 fusion: combine A, B, and deep-reasoning (C) scores.
+
+        Priority rule: if any required slots are missing, decision is always
+        "clarify" regardless of confidence scores. High confidence does NOT
+        mean executable — slots must also be complete.
 
         Parameters
         ----------
@@ -88,15 +97,22 @@ class ConfidenceFusionEngine:
             Layer-2 confidence score [0.0, 1.0].
         C:
             Layer-4 confidence score [0.0, 1.0] from deep reasoning.
+        slot_check:
+            Layer-2.5 slot check result. If provided and has missing required
+            slots, overrides confidence-based decision with "clarify".
 
         Returns
         -------
         Tuple[float, str]
             (score_abc, decision) where decision is one of:
-            - "execute" : score_abc >= 0.80 — high confidence after deep reasoning, proceed
-            - "continue" : 0.70 <= score_abc < 0.80 — proceed to dynamic slot resolution
-            - "hitl"     : score_abc <  0.70 — trigger human-in-the-loop
+            - "execute" : slots complete AND score_abc >= 0.80
+            - "continue" : slots complete AND 0.70 <= score_abc < 0.80
+            - "clarify" : missing required slots OR score_abc < 0.70
         """
+        # HARD OVERRIDE: missing required slots → clarify regardless of confidence
+        if slot_check is not None and slot_check.has_missing_required:
+            return 0.0, "clarify"
+
         score_abc = (
             A * self.WEIGHT_A_ABC
             + B * self.WEIGHT_B_ABC
@@ -108,7 +124,7 @@ class ConfidenceFusionEngine:
         elif score_abc >= 0.70:
             decision = "continue"
         else:
-            decision = "hitl"
+            decision = "clarify"
 
         return score_abc, decision
 
@@ -118,6 +134,8 @@ class ConfidenceFusionEngine:
         B: float = 0.0,
         C: float = 0.0,
         deep_triggered: bool = False,
+        slot_check: Optional[SlotCheckResult] = None,
+        action_id: str = "",
     ) -> ConfidenceScore:
         """Orchestrate the full two-stage fusion pipeline.
 
@@ -128,21 +146,33 @@ class ConfidenceFusionEngine:
         B:
             Layer-2 (ontology-match) confidence score.
         C:
-            Layer-4 (deep reasoning) confidence score. Required when
-            ``deep_triggered`` is True; ignored otherwise.
+            Layer-4 (deep reasoning) confidence score.
         deep_triggered:
-            Whether Layer 4 deep reasoning was triggered and its result
-            is available in ``C``.
-
-        Returns
-        -------
-        ConfidenceScore
-            Aggregated score with ``final_decision`` set to one of:
-            - ``ConfidenceDecision.EXECUTE``: direct execution signalled
-            - ``ConfidenceDecision.CONTINUE``: proceed to dynamic slot resolution
-            - ``ConfidenceDecision.DEEP_REASONING``: layer 4 should be triggered
-            - ``ConfidenceDecision.HITL``: human-in-the-loop required
+            Whether Layer 4 deep reasoning was triggered.
+        slot_check:
+            Layer-2.5 slot check result. If provided and has missing required
+            slots, forces decision="clarify" regardless of confidence scores.
+        action_id:
+            The action ID being evaluated. If it contains "create", the action
+            is marked as requiring human confirmation regardless of confidence.
         """
+        # HARD OVERRIDE: create operations always require human confirmation
+        is_create_action = "create" in action_id.lower() if action_id else False
+        if is_create_action:
+            print(f"[ConfidenceFusionEngine][INFO] 创建操作拦截 | action={action_id} | 强制HITL确认")
+            return ConfidenceScore(
+                score_ab=A * self.WEIGHT_A + B * self.WEIGHT_B,
+                score_abc=A * self.WEIGHT_A_ABC + B * self.WEIGHT_B_ABC + C * self.WEIGHT_C_ABC,
+                final_decision=ConfidenceDecision.HITL,
+                threshold_ab=self.THRESHOLD_AB,
+                threshold_abc=self.THRESHOLD_ABC,
+                confidence_a=A,
+                confidence_b=B,
+                confidence_c=C,
+                deep_triggered=deep_triggered,
+                metadata={"create_action_override": True},
+            )
+
         score_ab, decision_ab = self.fuse_ab(A, B)
 
         if decision_ab == "execute":
@@ -159,6 +189,19 @@ class ConfidenceFusionEngine:
             )
 
         if decision_ab == "continue":
+            if slot_check is not None and slot_check.has_missing_required:
+                return ConfidenceScore(
+                    score_ab=score_ab,
+                    score_abc=0.0,
+                    final_decision=ConfidenceDecision.HITL,
+                    threshold_ab=self.THRESHOLD_AB,
+                    threshold_abc=self.THRESHOLD_ABC,
+                    confidence_a=A,
+                    confidence_b=B,
+                    confidence_c=0.0,
+                    deep_triggered=False,
+                    metadata={"slot_check_override": True},
+                )
             return ConfidenceScore(
                 score_ab=score_ab,
                 score_abc=0.0,
@@ -185,9 +228,11 @@ class ConfidenceFusionEngine:
                 deep_triggered=False,
             )
 
-        score_abc, decision_abc = self.fuse_abc(A, B, C)
+        score_abc, decision_abc = self.fuse_abc(A, B, C, slot_check)
 
-        if decision_abc == "continue":
+        if decision_abc == "clarify":
+            final = ConfidenceDecision.HITL
+        elif decision_abc == "continue":
             final = ConfidenceDecision.CONTINUE
         else:
             final = ConfidenceDecision.HITL
@@ -202,4 +247,5 @@ class ConfidenceFusionEngine:
             confidence_b=B,
             confidence_c=C,
             deep_triggered=True,
+            metadata={"slot_check_override": slot_check is not None and slot_check.has_missing_required},
         )

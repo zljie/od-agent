@@ -53,6 +53,7 @@ from .models import (
     ExecutionResult,
     ResponseResult,
     SemanticContract,
+    SemanticContractSlot,
 )
 from .step1_intent import Step1Recognizer
 from .step2_ontology import Step2OntologyResolver
@@ -204,6 +205,12 @@ class FiveStepPipeline:
         self._ctx_assembler = ContextAssembler()
         self._logger = logging.getLogger(__name__)
 
+        # Phase 4.1: HITL Session State — pending task for multi-round slot filling
+        self._pending_hitl_task: Optional[Dict[str, Any]] = None
+        
+        # Flag to skip confirmation when resuming from confirmation
+        self._skip_confirmation: bool = False
+
     def _generate_task_id(self) -> str:
         """Generate a unique task ID."""
         date_str = datetime.now().strftime("%Y%m%d")
@@ -216,6 +223,58 @@ class FiveStepPipeline:
             step_update, done, content, tool_call, tool_result, error_event
         )
         return step_update, done, content, tool_call, tool_result, error_event
+
+    def _save_and_emit_hitl(
+        self,
+        task_id: str,
+        hitl_event: Dict[str, Any],
+        intent_result,
+        ontology_result,
+        plan_result,
+        composite_result,
+        hitl_request,
+        pending_hitl_task: Optional[Dict[str, Any]],
+        task_logger,
+        hitl_phase: str,
+        user_input: str = "",
+    ) -> bool:
+        """Save HITL session to global store and emit the HITL event, then yield done.
+
+        Returns True if HITL was emitted (caller should return).
+        The session is saved BEFORE yielding so that run_with_confirmation
+        can load it on the next HTTP request.
+        """
+        from .hitl_session_store import save_hitl_session
+
+        print(f"[FiveStepPipeline][DEBUG] _save_and_emit_hitl called | task_id={task_id} | hitl_phase={hitl_phase}")
+
+        # Save full context to global HITLSessionStore
+        ctx = save_hitl_session(
+            task_id=task_id,
+            session_id=self.session_id or "",
+            intent_result=intent_result,
+            ontology_result=ontology_result,
+            plan_result=plan_result,
+            composite_result=composite_result,
+            hitl_request=hitl_request,
+            pending_hitl_task=pending_hitl_task,
+            semantic_contract=getattr(intent_result, 'semantic_contract', None) if intent_result else None,
+            original_user_input=user_input,
+            hitl_phase=hitl_phase,
+        )
+
+        print(f"[FiveStepPipeline][DEBUG] HITL session saved | task_id={task_id} | ctx.expires_at={ctx.expires_at}")
+
+        # Also update the in-memory pending task for same-session access
+        if pending_hitl_task:
+            self._pending_hitl_task = pending_hitl_task
+
+        # Log HITL emission
+        hitl_question = getattr(hitl_request, 'question', '') if hitl_request else ''
+        hitl_options = getattr(hitl_request, 'options', []) if hitl_request else []
+        task_logger.emit_hitl(hitl_question, hitl_options)
+        task_logger.emit_sse_event(hitl_event)
+        return True
 
     def _build_context_package(
         self,
@@ -420,8 +479,19 @@ class FiveStepPipeline:
                 task_id,
             )
 
+            # Phase 4.1: Pass pending HITL task to Step1 recognizer
+            # This enables slot_filling mode on the next composite pipeline run
+            self._step1._pending_hitl_task = self._pending_hitl_task
+
             intent_result = self._step1.recognize(user_input, task_id=task_id)
             step_times[1] = (time.time() - step_times[1]) * 1000
+
+            # Sync back updated pending_hitl_task from Step1 recognizer
+            # This is critical for slot-fill protocol: the composite pipeline updates
+            # the pending task internally, and we need to reflect those changes here
+            if self._step1._pending_hitl_task is not None:
+                self._pending_hitl_task = self._step1._pending_hitl_task
+                print(f"[FiveStepPipeline][INFO] PendingHITL同步更新 | action={self._pending_hitl_task.get('action')} | 缺槽={self._pending_hitl_task.get('missing_slots')}")
 
             # Context audit for Step 1
             await self._context_audit(
@@ -432,29 +502,123 @@ class FiveStepPipeline:
                 ctx_package_1,
             )
 
-            # Phase 3: Check if composite pipeline triggered HITL
+            # Phase 3/4: Check if composite pipeline triggered HITL
             if intent_result.hitl_request is not None:
-                from ..sse_stream import confirm_request as cr
+                from ..sse_stream import slot_fill_request
                 hitl = intent_result.hitl_request
-                hitl_event = cr(
-                    step=1,
-                    title="需要澄清",
-                    message=hitl.question,
-                    detail=hitl.context.get("summary", ""),
-                    action_label="确认",
-                    alternatives=[{"label": o.label, "value": o.option_id} for o in hitl.options],
+                task_logger.emit_hitl(hitl.question, [])
+
+                # Build slot form fields for the HITL request
+                composite = intent_result.composite_result
+                slot_check = None
+                missing_slots = []
+
+                if composite and composite.layer_results:
+                    # Check slot-fill protocol first (highest priority for slot-fill inputs)
+                    if "slot_fill_protocol" in composite.layer_results:
+                        sf_data = composite.layer_results["slot_fill_protocol"]
+                        missing_slots = sf_data.get("still_missing", [])
+                        slot_check = composite.layer_results.get("layer_2_5_slot_completion", {})
+                    else:
+                        # Fall back to normal slot check
+                        slot_check = composite.layer_results.get("layer_2_5_slot_completion", {})
+                        if slot_check:
+                            missing_slots = slot_check.get("missing_required", [])
+                        if not missing_slots:
+                            deep = composite.layer_results.get("layer_4_deep_reasoning", {})
+                            missing_slots = deep.get("missing_info", [])
+
+                # Generate slot form fields from slot definitions
+                slot_form_fields = []
+                if missing_slots:
+                    slot_form_fields = self._step1._get_slot_form_fields(
+                        missing_slots, intent_result.object_term
+                    )
+
+                object_label = {
+                    "purchase_requests": "采购需求",
+                    "purchase_orders": "采购订单",
+                    "purchase_inquiries": "询价单",
+                    "purchase_quotations": "报价单",
+                }.get(intent_result.object_term, intent_result.object_term)
+
+                # Use slot_fill_request if we have slot fields, else fall back to confirm_request
+                if slot_form_fields:
+                    action_label = intent_result.intent_label or intent_result.intent
+                    hitl_event = slot_fill_request(
+                        request_id=task_id,
+                        step=1,
+                        title="需要澄清",
+                        message=hitl.question,
+                        slots=slot_form_fields,
+                        action_label=f"创建{object_label}" if "create" in intent_result.intent.lower() else f"确认{object_label}",
+                        action_id=intent_result.intent,
+                        risk_level=intent_result.risk_level,
+                        alternatives=[{"label": o.label, "value": o.option_id} for o in hitl.options] if hitl.options else None,
+                        detail=hitl.context.get("summary", ""),
+                    )
+                    task_logger.emit_decision("L6_HITL", "SLOT_FILL", intent_result.confidence, hitl.question)
+                else:
+                    from ..sse_stream import confirm_request as cr
+                    hitl_event = cr(
+                        step=1,
+                        title="需要澄清",
+                        message=hitl.question,
+                        detail=hitl.context.get("summary", ""),
+                        action_label="确认",
+                        task_id=task_id,
+                        alternatives=[{"label": o.label, "value": o.option_id} for o in hitl.options],
+                    )
+                    task_logger.emit_decision("L6_HITL", "HITL", intent_result.confidence, hitl.question)
+
+                # Build pending_hitl_task for slot filling
+                composite_meta = intent_result.composite_result.metadata if intent_result.composite_result else {}
+                updated_pending = composite_meta.get("pending_task")
+                if updated_pending:
+                    self._pending_hitl_task = updated_pending
+                else:
+                    self._pending_hitl_task = {
+                        "action": intent_result.intent,
+                        "object": intent_result.object_term,
+                        "missing_slots": missing_slots,
+                        "filled_slots": {},
+                        "task_id": task_id,
+                        "confidence": intent_result.confidence,
+                    }
+
+                # Also persist to PendingTaskStore for slot-fill protocol
+                from ..intent_recognition.pending_task_store import save_pending_task
+                save_pending_task(
+                    task_id=self._pending_hitl_task.get("task_id", task_id),
+                    action=self._pending_hitl_task.get("action", intent_result.intent),
+                    object=self._pending_hitl_task.get("object", intent_result.object_term),
+                    missing_slots=self._pending_hitl_task.get("missing_slots", missing_slots),
+                    filled_slots=self._pending_hitl_task.get("filled_slots", {}),
+                    confidence=self._pending_hitl_task.get("confidence", intent_result.confidence),
+                    metadata={
+                        "intent_label": intent_result.intent_label,
+                        "slot_form_fields": slot_form_fields,
+                    },
                 )
-                task_logger.emit_hitl(hitl.question, [{"label": o.label, "value": o.option_id} for o in hitl.options])
-                task_logger.emit_sse_event(hitl_event)
-                task_logger.emit_decision("L6_HITL", "HITL", intent_result.confidence, hitl.question)
+
+                # CRITICAL: Save full HITL session to global store so run_with_confirmation can resume
+                self._save_and_emit_hitl(
+                    task_id=task_id,
+                    hitl_event=hitl_event,
+                    intent_result=intent_result,
+                    ontology_result=None,
+                    plan_result=None,
+                    composite_result=intent_result.composite_result,
+                    hitl_request=hitl,
+                    pending_hitl_task=self._pending_hitl_task,
+                    task_logger=task_logger,
+                    hitl_phase="slot_fill",
+                    user_input=user_input,
+                )
+                # Emit the HITL event to frontend (hitl_event was saved but not yielded yet)
                 yield hitl_event
-                # Store composite result for resume
-                self._task_context["composite_result"] = intent_result.composite_result
-                self._task_context["hitl_request"] = intent_result.hitl_request
-                # Wait for confirmation via run_with_confirmation
-                done_event = done()
-                task_logger.emit_sse_event(done_event)
-                yield done_event
+                task_logger.emit_sse_event(done())
+                yield done()
                 return
 
             s1_complete = step_update(
@@ -501,7 +665,6 @@ class FiveStepPipeline:
 
             # Check if LLM inference needs HITL confirmation
             if ontology_result.llm_inferred and ontology_result.llm_reasoning:
-                # Emit confirmation request for LLM-inferred match
                 from ..sse_stream import confirm_request as cr
                 cr_event = cr(
                     step=2,
@@ -509,18 +672,30 @@ class FiveStepPipeline:
                     message=f"我理解您说的「{intent_result.object_term}」对应本体对象「{ontology_result.object_label}」",
                     detail=ontology_result.llm_reasoning,
                     action_label="确认",
+                    risk_level=intent_result.risk_level,
+                    task_id=task_id,
                     alternatives=ontology_result.alternatives if ontology_result.alternatives else None,
                 )
-                task_logger.emit_hitl(f"LLM推理确认: {ontology_result.object_label}", ontology_result.alternatives or [])
-                task_logger.emit_sse_event(cr_event)
+
+                # CRITICAL: Save full HITL session to global store for run_with_confirmation
+                self._save_and_emit_hitl(
+                    task_id=task_id,
+                    hitl_event=cr_event,
+                    intent_result=intent_result,
+                    ontology_result=ontology_result,
+                    plan_result=None,
+                    composite_result=intent_result.composite_result,
+                    hitl_request=None,
+                    pending_hitl_task=self._pending_hitl_task,
+                    task_logger=task_logger,
+                    hitl_phase="ontology_confirm",
+                    user_input=user_input,
+                )
+                # Emit the HITL event to frontend
                 yield cr_event
-                # Store the inference context for confirmation handling
-                self._task_context["llm_inference"] = {
-                    "original_term": intent_result.object_term,
-                    "inferred_label": ontology_result.object_label,
-                    "inferred_type": ontology_result.object_type,
-                    "reasoning": ontology_result.llm_reasoning,
-                }
+                task_logger.emit_sse_event(done())
+                yield done()
+                return
 
             s2_complete = step_update(
                 step=2,
@@ -600,19 +775,56 @@ class FiveStepPipeline:
                 yield content_event
 
             # Check if confirmation is needed
-            if plan_result.requires_confirmation:
-                # Emit confirmation request
+            # PHASE 4.1: Create operations ALWAYS require human confirmation
+            requires_confirmation = plan_result.requires_confirmation
+            operation_type = getattr(intent_result, 'operation_type', '')
+            hitl_triggered = getattr(intent_result.semantic_contract, 'hitl_triggered', False) if intent_result.semantic_contract else False
+
+            # Strategy 1: operation_type == "create" → always require confirmation
+            if operation_type == "create":
+                requires_confirmation = True
+                plan_result.risk_level = "high"
+
+            # Strategy 2: HITL was triggered by intent recognition (missing slots) → require confirmation
+            if hitl_triggered:
+                requires_confirmation = True
+
+            # Strategy 3: intent recognition result has hitl_request → require confirmation
+            if intent_result.hitl_request is not None:
+                requires_confirmation = True
+            
+            if requires_confirmation and not self._skip_confirmation:
+                confirmation_message = self._build_confirmation_message(intent_result, plan_result)
+
                 from ..sse_stream import confirm_request as cr
                 cr_event = cr(
                     step=4,
                     title="即将执行操作",
-                    message=f"此操作需要您的确认，是否继续？",
+                    message=confirmation_message,
                     action_label="确认执行",
                     risk_level=plan_result.risk_level,
+                    task_id=task_id,
                 )
-                task_logger.emit_hitl("操作确认", [])
-                task_logger.emit_sse_event(cr_event)
+
+                # CRITICAL: Save full HITL session to global store for run_with_confirmation
+                self._save_and_emit_hitl(
+                    task_id=task_id,
+                    hitl_event=cr_event,
+                    intent_result=intent_result,
+                    ontology_result=ontology_result,
+                    plan_result=plan_result,
+                    composite_result=intent_result.composite_result,
+                    hitl_request=None,
+                    pending_hitl_task=self._pending_hitl_task,
+                    task_logger=task_logger,
+                    hitl_phase="create_confirm",
+                    user_input=user_input,
+                )
+                # Emit the HITL event to frontend
                 yield cr_event
+                task_logger.emit_sse_event(done())
+                yield done()
+                return
 
             # ===== STEP 4: Execution =====
             step_times[4] = time.time()
@@ -759,187 +971,401 @@ class FiveStepPipeline:
         confirmation: Dict[str, Any],
         session_id: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Run pipeline with a confirmation result.
+        """Resume pipeline after user confirms a HITL request.
 
-        This is called after user confirms or cancels a pending action.
-        For composite HITL, re-runs the pipeline from Step 1 with the user's clarification.
+        IMPORTANT: This is called on a NEW FiveStepPipeline instance (different from the
+        one that emitted the HITL). Therefore, we MUST load the saved context from
+        HITLSessionStore — instance fields like self._task_context are ALWAYS empty.
+
+        The flow is:
+        1. Load saved HITL session from HITLSessionStore (keyed by task_id)
+        2. Based on hitl_phase, determine which step to resume from
+        3. Continue execution with the loaded context
+        4. Clear the session on completion
         """
         from ..sse_stream import done as done_fn, content as content_fn, step_update as step_update_fn, error_event
+        from .hitl_session_store import load_hitl_session, clear_hitl_session
+        from ..audit import get_task_logger
 
         action = confirmation.get("action", "")
 
         if action == "cancel":
-            yield error_event(
+            clear_hitl_session(task_id)
+            err = error_event(
                 code="CANCELLED",
                 message="用户取消了操作",
                 step=4,
                 recoverable=False,
             )
+            yield err
             yield done_fn()
             return
 
-        # Check if this is a composite HITL resume
-        composite_result = self._task_context.get("composite_result")
-        hitl_request = self._task_context.get("hitl_request")
+        # CRITICAL: Load saved HITL session from global store
+        hitl_ctx = load_hitl_session(task_id)
 
-        if composite_result is not None and hitl_request is not None:
-            # Phase 3: Resume from composite HITL
-            selected_value = confirmation.get("selected_value", "")
-            step_update, done, content, tool_call, tool_result, error_fn = self._get_sse_helpers()
+        # Recover or create task logger for this task
+        task_logger = get_task_logger(task_id)
+        if task_logger is None:
+            task_logger = get_task_logger(hitl_ctx.task_id) if hitl_ctx else None
+        if task_logger is None:
+            from ..audit import create_task_logger
+            task_logger = create_task_logger(task_id, hitl_ctx.original_user_input if hitl_ctx else "")
 
-            # Re-run composite pipeline with user's clarification
-            composite_pipeline = self._step1._get_composite_pipeline()
-            if composite_pipeline:
-                # Provide the clarification to the composite pipeline
-                clarified_input = f"{user_input} {selected_value}"
-                composite_result = composite_pipeline.run(clarified_input)
+        if hitl_ctx is None:
+            # No HITL session found — try to recover from PendingTaskStore as fallback
+            print(f"[FiveStepPipeline][WARN] run_with_confirmation: 未找到HITL会话 {task_id}，尝试从PendingTaskStore恢复")
+            from ..intent_recognition.pending_task_store import load_pending_task
+            pending_task = load_pending_task(task_id)
+            if pending_task:
+                print(f"[FiveStepPipeline][INFO] 从PendingTaskStore恢复 | action={pending_task.action} | 已填槽={list(pending_task.filled_slots.keys())} | 缺槽={pending_task.missing_slots}")
+                # Restore to pending_hitl_task for later use
+                self._pending_hitl_task = {
+                    "action": pending_task.action,
+                    "object": pending_task.object,
+                    "missing_slots": pending_task.missing_slots,
+                    "filled_slots": pending_task.filled_slots,
+                    "task_id": task_id,
+                    "confidence": pending_task.confidence,
+                }
+                # Emit a message indicating the session was partially recovered
+                c = content_fn(f"已恢复任务 {task_id}，但部分上下文丢失。请重新提交表单。")
+                task_logger.emit_sse_event(c); yield c
+                d = done_fn()
+                task_logger.emit_sse_event(d)
+                yield d
+                return
+            # If both stores are empty, use legacy path
+            print(f"[FiveStepPipeline][WARN] run_with_confirmation: 所有Store都未找到 {task_id}，使用legacy路径")
+            s4a = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="active")
+            task_logger.emit_sse_event(s4a); yield s4a
+            s4c = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="completed")
+            task_logger.emit_sse_event(s4c); yield s4c
+            s5a = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="active")
+            task_logger.emit_sse_event(s5a); yield s5a
+            c = content_fn("操作已根据您的确认继续执行。")
+            task_logger.emit_sse_event(c); yield c
+            d = done_fn()
+            task_logger.emit_sse_event(d)
+            yield d
+            return
 
-            # Build intent_result from updated composite result
-            if composite_result and composite_result.top_candidate:
-                top = composite_result.top_candidate
+        print(f"[FiveStepPipeline][INFO] run_with_confirmation: 从HITLSessionStore加载 | phase={hitl_ctx.hitl_phase}")
+
+        step_update, done, content, tool_call, tool_result, error_fn = self._get_sse_helpers()
+
+        # Restore context from saved session
+        intent_result = hitl_ctx.intent_result
+        ontology_result = hitl_ctx.ontology_result
+        plan_result = hitl_ctx.plan_result
+        composite_result = hitl_ctx.composite_result
+        self._pending_hitl_task = hitl_ctx.pending_hitl_task
+
+        # Set skip flag so we don't ask for confirmation again
+        self._skip_confirmation = True
+
+        # Route based on which phase triggered HITL
+        hitl_phase = hitl_ctx.hitl_phase
+
+        if hitl_phase == "slot_fill":
+            # Frontend sends filled_slots as {id: value, ...} dict
+            # Also support slots as [{"id": "...", "value": "..."}, ...] list for compatibility
+            submitted_slots: Dict[str, Any] = {}
+            # Primary: filled_slots dict
+            filled = confirmation.get("filled_slots", {})
+            if isinstance(filled, dict):
+                submitted_slots = {k: v for k, v in filled.items() if v is not None and v != ""}
+            # Fallback: slots list
+            if not submitted_slots:
+                slots_list = confirmation.get("slots", [])
+                if isinstance(slots_list, list):
+                    for slot in slots_list:
+                            if isinstance(slot, dict) and slot.get("id") and slot.get("value"):
+                                submitted_slots[slot["id"]] = slot["value"]
+
+            pending = self._pending_hitl_task
+            if pending:
+                original_filled = pending.get("filled_slots", {})
+                original_missing = pending.get("missing_slots", [])
+                updated_filled = {**original_filled, **submitted_slots}
+                still_missing = [s for s in original_missing if not updated_filled.get(s)]
+                self._pending_hitl_task = {
+                    **pending,
+                    "filled_slots": updated_filled,
+                    "missing_slots": still_missing,
+                }
+                print(f"[FiveStepPipeline][INFO] SlotFill表单数据 | submitted={list(submitted_slots.keys())} | 已填槽={list(updated_filled.keys())} | 仍缺槽={still_missing}")
+
+            # If slots are still incomplete, emit another HITL requesting remaining ones
+            still_missing = self._pending_hitl_task.get("missing_slots", []) if self._pending_hitl_task else []
+            if still_missing:
                 from .models import IntentRecognitionResult
+                from .hitl_session_store import save_hitl_session
+                from ..sse_stream import slot_fill_request as sfr
+
+                # Rebuild intent_result from original (intent is already known)
+                orig_intent = hitl_ctx.intent_result
+                top_intent_id = getattr(orig_intent, 'intent', 'create_object')
+                top_object_term = getattr(orig_intent, 'object_term', '')
+                operation_type = self._step1._map_action_to_operation(top_intent_id) if self._step1 else "create"
+                risk_level = self._step1._assess_risk(operation_type) if self._step1 else "medium"
+
                 intent_result = IntentRecognitionResult(
-                    intent=top.intent_id,
-                    intent_label=top.intent_name or top.intent_id,
-                    object_term=top.params.get("object_term", ""),
-                    normalized_term=top.params.get("normalized_object_term"),
-                    operation_type=self._step1._map_action_to_operation(top.intent_id),
-                    risk_level=self._step1._assess_risk(self._step1._map_action_to_operation(top.intent_id)),
+                    intent=top_intent_id,
+                    intent_label=getattr(orig_intent, 'intent_label', top_intent_id),
+                    object_term=top_object_term,
+                    normalized_term=getattr(orig_intent, 'normalized_term', ''),
+                    operation_type=operation_type,
+                    risk_level=risk_level,
                     requires_confirmation=False,
-                    confidence=top.confidence,
-                    alternative_intents=[c.intent_id for c in composite_result.candidates[1:4]],
+                    confidence=getattr(orig_intent, 'confidence', 1.0),
                     composite_result=composite_result,
-                    hitl_request=composite_result.hitl_request,
-                    composite_layer_results=composite_result.layer_results,
-                    composite_task_id=composite_result.task_id,
                 )
-            else:
-                # Fall back to original intent_result
-                intent_result = None
 
-            # Clear HITL context
-            self._task_context.pop("composite_result", None)
-            self._task_context.pop("hitl_request", None)
+                slot_form_fields = []
+                if self._step1:
+                    slot_form_fields = self._step1._get_slot_form_fields(still_missing, top_object_term)
 
-            if intent_result:
-                yield step_update_fn(
+                object_label = {
+                    "purchase_requests": "采购需求",
+                    "purchase_orders": "采购订单",
+                    "purchase_inquiries": "询价单",
+                    "purchase_quotations": "报价单",
+                }.get(top_object_term, top_object_term)
+
+                hitl_event = sfr(
+                    request_id=task_id,
                     step=1,
-                    step_name=self.STEP_NAMES[1],
-                    status="completed",
-                    summary=intent_result.summary,
-                    details=intent_result.to_s1_details(),
+                    title="需要补充更多信息",
+                    message="请继续补充以下信息：",
+                    slots=slot_form_fields,
+                    action_label=f"创建{object_label}" if "create" in top_intent_id.lower() else f"确认{object_label}",
+                    action_id=top_intent_id,
+                    risk_level=risk_level,
                 )
 
-                # Continue with Step 2 (with composite_result)
-                yield step_update_fn(
-                    step=2,
-                    step_name=self.STEP_NAMES[2],
-                    status="active",
+                save_hitl_session(
+                    task_id=task_id,
+                    session_id=self.session_id or "",
+                    intent_result=hitl_ctx.intent_result,
+                    ontology_result=hitl_ctx.ontology_result,
+                    plan_result=hitl_ctx.plan_result,
+                    composite_result=hitl_ctx.composite_result,
+                    hitl_request=None,
+                    pending_hitl_task=self._pending_hitl_task,
+                    semantic_contract=getattr(hitl_ctx.intent_result, 'semantic_contract', None) if hitl_ctx.intent_result else None,
+                    original_user_input=hitl_ctx.original_user_input,
+                    hitl_phase="slot_fill",
                 )
 
-                ontology_result = self._step2.resolve(user_input, intent_result, composite_result)
-
-                yield step_update_fn(
-                    step=2,
-                    step_name=self.STEP_NAMES[2],
-                    status="completed",
-                    summary=ontology_result.summary,
-                    details=ontology_result.to_s2_details(),
-                )
-
-                # Continue with Step 3
-                yield step_update_fn(
-                    step=3,
-                    step_name=self.STEP_NAMES[3],
-                    status="active",
-                )
-
-                plan_result = self._step3.plan(intent_result, ontology_result)
-
-                yield step_update_fn(
-                    step=3,
-                    step_name=self.STEP_NAMES[3],
-                    status="completed",
-                    summary=plan_result.summary,
-                    details=plan_result.to_s3_details(),
-                )
-
-                if plan_result.plan_summary:
-                    yield content_fn(f"📋 **执行计划说明**：{plan_result.plan_summary}")
-
-                # Continue with Step 4
-                yield step_update_fn(
-                    step=4,
-                    step_name=self.STEP_NAMES[4],
-                    status="active",
-                )
-
-                exec_result = await self._step4.execute(plan_result, task_id, None)
-
-                yield step_update_fn(
-                    step=4,
-                    step_name=self.STEP_NAMES[4],
-                    status="completed",
-                    summary=exec_result.summary,
-                    details=exec_result.to_s4_details(),
-                )
-
-                # Continue with Step 5
-                yield step_update_fn(
-                    step=5,
-                    step_name=self.STEP_NAMES[5],
-                    status="active",
-                )
-
-                response_result = self._step5.generate(
-                    exec_result, plan_result, intent_result, ontology_result
-                )
-
-                yield step_update_fn(
-                    step=5,
-                    step_name=self.STEP_NAMES[5],
-                    status="completed",
-                    summary="回复已生成",
-                    details=response_result.to_s5_details(),
-                    suggested_actions=[a.to_dict() for a in response_result.next_actions],
-                )
-
-                yield content_fn(response_result.text)
-                yield done_fn()
+                yield hitl_event
+                task_logger.emit_sse_event(hitl_event)
+                d = done_fn()
+                task_logger.emit_sse_event(d)
+                yield d
                 return
 
-        # Legacy confirmation handling (non-composite)
-        # Store confirmation in context
-        self._task_context[task_id] = {
-            "confirmation": confirmation,
-            "confirmed_at": datetime.now().isoformat(),
-        }
+            # All slots filled — proceed to Step 2+3+4+5
+            from .models import IntentRecognitionResult
+            orig_intent = hitl_ctx.intent_result
+            top_intent_id = getattr(orig_intent, 'intent', 'create_object')
+            top_object_term = getattr(orig_intent, 'object_term', '')
+            top_intent_label = getattr(orig_intent, 'intent_label', top_intent_id)
+            top_confidence = getattr(orig_intent, 'confidence', 1.0)
+            normalized_term = getattr(orig_intent, 'normalized_term', '')
+            operation_type = self._step1._map_action_to_operation(top_intent_id) if self._step1 else "create"
+            risk_level = self._step1._assess_risk(operation_type) if self._step1 else "medium"
 
-        # Skip to execution step (we know user confirmed intent, ontology, and plan)
-        yield step_update_fn(
-            step=4,
-            step_name=self.STEP_NAMES[4],
-            status="active",
-            summary="用户已确认，继续执行",
-        )
+            # CRITICAL: Build semantic contract with filled slots for Step 3 planner
+            filled = self._pending_hitl_task.get("filled_slots", {}) if self._pending_hitl_task else {}
 
-        # Continue with execution (simplified - just mark complete)
-        yield step_update_fn(
-            step=4,
-            step_name=self.STEP_NAMES[4],
-            status="completed",
-            summary="执行已恢复",
-        )
+            intent_result = IntentRecognitionResult(
+                intent=top_intent_id,
+                intent_label=top_intent_label,
+                object_term=top_object_term,
+                normalized_term=normalized_term,
+                operation_type=operation_type,
+                risk_level=risk_level,
+                requires_confirmation=False,
+                confidence=top_confidence,
+                composite_result=composite_result,
+                # Pass filled_slots via semantic_contract for planner to use
+                semantic_contract=self._build_semantic_contract_with_slots(
+                    top_intent_id, top_object_term, filled
+                ) if filled else None,
+            )
 
-        # Step 5
-        yield step_update_fn(
-            step=5,
-            step_name=self.STEP_NAMES[5],
-            status="active",
-        )
+            # Skip to Step 2+3 since intent is known
+            s1c = step_update_fn(step=1, step_name=self.STEP_NAMES[1], status="completed",
+                               summary=intent_result.summary, details=intent_result.to_s1_details())
+            task_logger.emit_sse_event(s1c); yield s1c
 
-        yield content_fn("操作已根据您的确认继续执行。")
-        yield done_fn()
+            s2a = step_update_fn(step=2, step_name=self.STEP_NAMES[2], status="active")
+            task_logger.emit_sse_event(s2a); yield s2a
+            ontology_result = self._step2.resolve(hitl_ctx.original_user_input, intent_result, composite_result)
+            s2c = step_update_fn(step=2, step_name=self.STEP_NAMES[2], status="completed",
+                               summary=ontology_result.summary, details=ontology_result.to_s2_details())
+            task_logger.emit_sse_event(s2c); yield s2c
+
+            s3a = step_update_fn(step=3, step_name=self.STEP_NAMES[3], status="active")
+            task_logger.emit_sse_event(s3a); yield s3a
+            plan_result = self._step3.plan(intent_result, ontology_result)
+            s3c = step_update_fn(step=3, step_name=self.STEP_NAMES[3], status="completed",
+                               summary=plan_result.summary, details=plan_result.to_s3_details())
+            task_logger.emit_sse_event(s3c); yield s3c
+
+            if plan_result.plan_summary:
+                c = content_fn(f"📋 **执行计划说明**：{plan_result.plan_summary}")
+                task_logger.emit_sse_event(c); yield c
+
+            # Check if execution is ready
+            filled = self._pending_hitl_task.get("filled_slots", {}) if self._pending_hitl_task else {}
+            if not plan_result.requires_confirmation and getattr(intent_result, 'operation_type', '') != "create":
+                # Ready to execute
+                s4a = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="active")
+                task_logger.emit_sse_event(s4a); yield s4a
+                exec_result = await self._step4.execute(plan_result, task_id, filled)
+                s4c = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="completed",
+                                   summary=exec_result.summary, details=exec_result.to_s4_details())
+                task_logger.emit_sse_event(s4c); yield s4c
+                s5a = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="active")
+                task_logger.emit_sse_event(s5a); yield s5a
+                response_result = self._step5.generate(exec_result, plan_result, intent_result, ontology_result)
+                s5c = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="completed",
+                                   summary="回复已生成", details=response_result.to_s5_details(),
+                                   suggested_actions=[a.to_dict() for a in response_result.next_actions])
+                task_logger.emit_sse_event(s5c); yield s5c
+                c = content_fn(response_result.text)
+                task_logger.emit_sse_event(c); yield c
+            else:
+                # Create operation: need additional confirmation
+                operation_type = getattr(intent_result, 'operation_type', '')
+                if operation_type == "create":
+                    confirmation_msg = self._build_confirmation_message(intent_result, plan_result)
+                    c = content_fn(f"✅ **您已确认**，即将执行以下操作：\n\n{confirmation_msg}")
+                    task_logger.emit_sse_event(c); yield c
+
+                s4a = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="active")
+                task_logger.emit_sse_event(s4a); yield s4a
+                exec_result = await self._step4.execute(plan_result, task_id, filled)
+                s4c = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="completed",
+                                   summary=exec_result.summary, details=exec_result.to_s4_details())
+                task_logger.emit_sse_event(s4c); yield s4c
+                s5a = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="active")
+                task_logger.emit_sse_event(s5a); yield s5a
+                response_result = self._step5.generate(exec_result, plan_result, intent_result, ontology_result)
+                s5c = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="completed",
+                                   summary="回复已生成", details=response_result.to_s5_details(),
+                                   suggested_actions=[a.to_dict() for a in response_result.next_actions])
+                task_logger.emit_sse_event(s5c); yield s5c
+                c = content_fn(response_result.text)
+                task_logger.emit_sse_event(c); yield c
+        elif hitl_phase == "ontology_confirm":
+            # Ontology confirmation: user confirmed LLM-inferred object
+            # Continue from Step 3
+            s1c = step_update_fn(step=1, step_name=self.STEP_NAMES[1], status="completed",
+                               summary=getattr(intent_result, 'summary', ''))
+            task_logger.emit_sse_event(s1c); yield s1c
+            s2c = step_update_fn(step=2, step_name=self.STEP_NAMES[2], status="completed",
+                               summary=ontology_result.summary if ontology_result else '')
+            task_logger.emit_sse_event(s2c); yield s2c
+            s3a = step_update_fn(step=3, step_name=self.STEP_NAMES[3], status="active")
+            task_logger.emit_sse_event(s3a); yield s3a
+            plan_result = self._step3.plan(intent_result, ontology_result)
+            s3c = step_update_fn(step=3, step_name=self.STEP_NAMES[3], status="completed",
+                               summary=plan_result.summary, details=plan_result.to_s3_details())
+            task_logger.emit_sse_event(s3c); yield s3c
+
+            if plan_result.plan_summary:
+                c = content_fn(f"📋 **执行计划说明**：{plan_result.plan_summary}")
+                task_logger.emit_sse_event(c); yield c
+
+            operation_type = getattr(intent_result, 'operation_type', '')
+            if operation_type == "create":
+                confirmation_msg = self._build_confirmation_message(intent_result, plan_result)
+                c = content_fn(f"✅ **您已确认**，即将执行以下操作：\n\n{confirmation_msg}")
+                task_logger.emit_sse_event(c); yield c
+
+            s4a = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="active")
+            task_logger.emit_sse_event(s4a); yield s4a
+            exec_result = await self._step4.execute(plan_result, task_id, None)
+            s4c = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="completed",
+                               summary=exec_result.summary, details=exec_result.to_s4_details())
+            task_logger.emit_sse_event(s4c); yield s4c
+            s5a = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="active")
+            task_logger.emit_sse_event(s5a); yield s5a
+            response_result = self._step5.generate(exec_result, plan_result, intent_result, ontology_result)
+            s5c = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="completed",
+                               summary="回复已生成", details=response_result.to_s5_details(),
+                               suggested_actions=[a.to_dict() for a in response_result.next_actions])
+            task_logger.emit_sse_event(s5c); yield s5c
+            c = content_fn(response_result.text)
+            task_logger.emit_sse_event(c); yield c
+        elif hitl_phase == "create_confirm":
+            # Create confirmation: user confirmed the create operation
+            # Skip to Step 4 execution directly
+            s1c = step_update_fn(step=1, step_name=self.STEP_NAMES[1], status="completed",
+                               summary=getattr(intent_result, 'summary', ''))
+            task_logger.emit_sse_event(s1c); yield s1c
+            s2c = step_update_fn(step=2, step_name=self.STEP_NAMES[2], status="completed",
+                               summary=ontology_result.summary if ontology_result else '')
+            task_logger.emit_sse_event(s2c); yield s2c
+            s3c = step_update_fn(step=3, step_name=self.STEP_NAMES[3], status="completed",
+                               summary=plan_result.summary if plan_result else '')
+            task_logger.emit_sse_event(s3c); yield s3c
+
+            if plan_result and plan_result.plan_summary:
+                c = content_fn(f"📋 **执行计划说明**：{plan_result.plan_summary}")
+                task_logger.emit_sse_event(c); yield c
+
+            confirmation_msg = self._build_confirmation_message(intent_result, plan_result)
+            c = content_fn(f"✅ **您已确认**，即将执行以下操作：\n\n{confirmation_msg}")
+            task_logger.emit_sse_event(c); yield c
+
+            s4a = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="active")
+            task_logger.emit_sse_event(s4a); yield s4a
+            exec_result = await self._step4.execute(plan_result, task_id, None)
+            s4c = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="completed",
+                               summary=exec_result.summary, details=exec_result.to_s4_details())
+            task_logger.emit_sse_event(s4c); yield s4c
+            s5a = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="active")
+            task_logger.emit_sse_event(s5a); yield s5a
+            response_result = self._step5.generate(exec_result, plan_result, intent_result, ontology_result)
+            s5c = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="completed",
+                               summary="回复已生成", details=response_result.to_s5_details(),
+                               suggested_actions=[a.to_dict() for a in response_result.next_actions])
+            task_logger.emit_sse_event(s5c); yield s5c
+            c = content_fn(response_result.text)
+            task_logger.emit_sse_event(c); yield c
+        else:
+            # Unknown phase — fallback to simple execution
+            print(f"[FiveStepPipeline][WARN] run_with_confirmation: 未知phase={hitl_phase}")
+            if plan_result:
+                s4a = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="active")
+                task_logger.emit_sse_event(s4a); yield s4a
+                exec_result = await self._step4.execute(plan_result, task_id, None)
+                s4c = step_update_fn(step=4, step_name=self.STEP_NAMES[4], status="completed",
+                                   summary=exec_result.summary, details=exec_result.to_s4_details())
+                task_logger.emit_sse_event(s4c); yield s4c
+                s5a = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="active")
+                task_logger.emit_sse_event(s5a); yield s5a
+                response_result = self._step5.generate(exec_result, plan_result, intent_result, ontology_result)
+                s5c = step_update_fn(step=5, step_name=self.STEP_NAMES[5], status="completed",
+                                   summary="回复已生成", details=response_result.to_s5_details())
+                task_logger.emit_sse_event(s5c); yield s5c
+                c = content_fn(response_result.text)
+                task_logger.emit_sse_event(c); yield c
+            else:
+                c = content_fn("操作已完成。")
+                task_logger.emit_sse_event(c); yield c
+
+        # Clear the HITL session after successful completion
+        clear_hitl_session(task_id)
+        d = done_fn()
+        task_logger.emit_sse_event(d)
+        task_logger.close(final_status="completed")
+        yield d
+
 
     async def resume_from_step(
         self,
@@ -960,6 +1386,83 @@ class FiveStepPipeline:
         )
         yield content_fn("任务已从步骤 {} 恢复执行".format(from_step))
         yield done_fn()
+
+    def _build_confirmation_message(self, intent_result, plan_result) -> str:
+        """Build a detailed confirmation message for create operations.
+        
+        Shows:
+        - What action will be performed
+        - What data will be created
+        - All filled slots with their values
+        """
+        lines = []
+        
+        # Get action label
+        action_label = getattr(intent_result, 'intent_label', '创建记录')
+        lines.append(f"即将执行：【{action_label}】")
+        lines.append("")
+        
+        # Get semantic contract slots
+        semantic_contract = getattr(plan_result, 'semantic_contract', None)
+        if semantic_contract and semantic_contract.slots:
+            lines.append("📝 **将要创建的数据：**")
+            for slot_name, slot in semantic_contract.slots.items():
+                display_value = slot.display_value if hasattr(slot, 'display_value') else str(slot)
+                slot_label = self._get_slot_label(slot_name)
+                lines.append(f"  • {slot_label}：{display_value}")
+            lines.append("")
+        
+        # Show query conditions if any
+        if plan_result.query_conditions:
+            lines.append("🔍 **查询条件：**")
+            for cond in plan_result.query_conditions:
+                lines.append(f"  • {cond.label}：{cond.value}")
+            lines.append("")
+        
+        lines.append("请确认以上信息是否正确，点击「确认执行」继续。")
+        
+        return "\n".join(lines)
+    
+    def _get_slot_label(self, slot_name: str) -> str:
+        """Get human-readable label for a slot name."""
+        labels = {
+            "material": "物料信息",
+            "material_id": "物料编码",
+            "material_d": "物料描述",
+            "quantity": "采购数量",
+            "delivery_date": "需求日期",
+            "apply_dep": "申请部门",
+            "pr_type": "采购类型",
+            "factory_id": "工厂",
+            "company_id": "公司",
+            "unit_id": "单位",
+            "source_type": "来源类型",
+            "material_category": "物料分类",
+        }
+        return labels.get(slot_name, slot_name)
+
+    def _build_semantic_contract_with_slots(
+        self, action: str, object_term: str, filled_slots: Dict[str, Any]
+    ) -> SemanticContract:
+        """Build a SemanticContract with filled slots for planner/executor to use."""
+        slots = {}
+        for key, value in filled_slots.items():
+            slots[key] = SemanticContractSlot(
+                name=key,
+                display_value=str(value),
+                source="user_filled",
+            )
+        return SemanticContract(
+            object=object_term,
+            object_label=object_term,
+            action=action,
+            action_label=action,
+            confidence=1.0,
+            slots=slots,
+            alternatives=[],
+            hitl_triggered=False,
+            missing_info=[],
+        )
 
     async def _audit_log(
         self,

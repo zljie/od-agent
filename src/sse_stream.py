@@ -30,6 +30,7 @@ class SSEEventType(str, Enum):
     PLAN = "plan"
     STEP_UPDATE = "step_update"
     CONFIRM_REQUEST = "confirm_request"
+    SLOT_FILL_REQUEST = "slot_fill_request"
     ERROR_EVENT = "error"
 
 
@@ -325,6 +326,7 @@ class ConfirmRequestPayload:
     action: Dict[str, Any]
     cancel_action: Dict[str, Any]
     risk_level: str
+    task_id: str = ""  # Real task_id for HITL session store lookup
     affected_records: Optional[List[Dict[str, Any]]] = None
     detail: Optional[str] = None  # Additional context/reasoning
     alternatives: Optional[List[Dict[str, Any]]] = None  # Alternative options
@@ -337,6 +339,7 @@ class ConfirmRequestPayload:
             "action": self.action,
             "cancelAction": self.cancel_action,
             "riskLevel": self.risk_level,
+            "taskId": self.task_id,
         }
         if self.affected_records:
             data["affectedRecords"] = self.affected_records
@@ -345,6 +348,64 @@ class ConfirmRequestPayload:
         if self.alternatives:
             data["alternatives"] = self.alternatives
         return {"event": SSEEventType.CONFIRM_REQUEST.value, "data": json.dumps(data, ensure_ascii=False)}
+
+
+@dataclass
+class SlotFillPayload:
+    """Slot filling form payload for HITL clarification.
+
+    Returned when the pipeline needs the user to fill in required slots
+    before execution can proceed. Frontend renders this as a structured form.
+
+    Example rendered output:
+        ┌─────────────────────────────────────────────────┐
+        │ [!] 需要澄清                                     │
+        ├─────────────────────────────────────────────────┤
+        │ 好的，我来帮您创建采购需求。还需要补充以下信息：   │
+        │ 1. 单据编号                                      │
+        │ 2. 单据类型                                      │
+        ├─────────────────────────────────────────────────┤
+        │ * 单据编号                                       │
+        │ [________________]                              │
+        │                                                 │
+        │ * 单据类型                                       │
+        │ [请选择单据类型 ▼________________]              │
+        │                                                 │
+        │ ─────────────────────────────────────────────── │
+        │                    [取消]  [创建采购需求]       │
+        └─────────────────────────────────────────────────┘
+    """
+
+    id: str  # Unique request ID for correlation
+    step: int
+    title: str
+    message: str
+    action: Dict[str, Any]  # {"id": "...", "label": "..."}
+    cancel_action: Dict[str, Any]  # {"id": "cancel", "label": "取消"}
+    risk_level: str  # low / medium / high
+    slots: List[Dict[str, Any]] = field(default_factory=list)
+    # Each slot: {"id": "field_name", "label": "显示名", "type": "text|select|date|number",
+    #             "required": true/false, "placeholder": "...", "options": [...]}
+    alternatives: Optional[List[Dict[str, Any]]] = None
+    detail: Optional[str] = None  # Additional context for AI reasoning
+
+    def to_event(self) -> Dict[str, Any]:
+        data = {
+            "id": self.id,
+            "step": self.step,
+            "title": self.title,
+            "message": self.message,
+            "slots": self.slots,
+            "action": self.action,
+            "cancelAction": self.cancel_action,
+            "riskLevel": self.risk_level,
+            "taskId": self.id,  # taskId in SSE data matches request_id for store lookup
+        }
+        if self.detail:
+            data["detail"] = self.detail
+        if self.alternatives:
+            data["alternatives"] = self.alternatives
+        return {"event": SSEEventType.SLOT_FILL_REQUEST.value, "data": json.dumps(data, ensure_ascii=False)}
 
 
 @dataclass
@@ -484,6 +545,7 @@ def confirm_request(
     action_label: str = "确认执行",
     cancel_label: str = "取消",
     risk_level: str = "medium",
+    task_id: str = "",
     affected_records: Optional[List[Dict[str, Any]]] = None,
     detail: Optional[str] = None,
     alternatives: Optional[List[Dict[str, Any]]] = None,
@@ -492,8 +554,91 @@ def confirm_request(
         step=step, title=title, message=message,
         action={"id": "confirm", "label": action_label},
         cancel_action={"id": "cancel", "label": cancel_label},
-        risk_level=risk_level, affected_records=affected_records,
+        risk_level=risk_level,
+        task_id=task_id,
+        affected_records=affected_records,
         detail=detail, alternatives=alternatives
+    )
+    return payload.to_event()
+
+
+def slot_fill_request(
+    request_id: str,
+    step: int,
+    title: str,
+    message: str,
+    slots: List[Dict[str, Any]],
+    action_label: str = "确认",
+    cancel_label: str = "取消",
+    risk_level: str = "medium",
+    action_id: str = "slot_fill_submit",
+    alternatives: Optional[List[Dict[str, Any]]] = None,
+    detail: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build a slot_fill_request event for HITL clarification.
+
+    Parameters
+    ----------
+    request_id:
+        Unique ID for this slot fill request (e.g., "slot-fill-pr-001").
+        Frontend uses this to correlate submitted values.
+    step:
+        Pipeline step (usually 1).
+    title:
+        Dialog title shown at the top of the form.
+    message:
+        Introductory text explaining what the user needs to fill in.
+    slots:
+        List of slot definitions. Each dict contains:
+        - id: field name (e.g., "material", "quantity")
+        - label: human-readable label (e.g., "物料信息")
+        - type: "text" | "select" | "date" | "number"
+        - required: true/false
+        - placeholder: hint text for text inputs
+        - options: list of {value, label} for select inputs
+    action_label:
+        Label for the submit button (e.g., "创建采购需求").
+    cancel_label:
+        Label for the cancel button.
+    risk_level:
+        "low" | "medium" | "high" — affects form styling.
+    action_id:
+        Internal action ID for the submit button.
+    alternatives:
+        Alternative intent options the user can switch to.
+
+    Example
+    -------
+    >>> slot_fill_request(
+    ...     request_id="slot-fill-pr-001",
+    ...     step=1,
+    ...     title="需要澄清",
+    ...     message="好的，我来帮您创建采购需求。还需要补充以下信息：\n1. 单据编号\n2. 单据类型",
+    ...     slots=[
+    ...         {"id": "document_id", "label": "单据编号", "type": "text",
+    ...          "required": True, "placeholder": "请输入单据编号"},
+    ...         {"id": "document_type", "label": "单据类型", "type": "select",
+    ...          "required": True, "options": [
+    ...              {"value": "PR", "label": "采购需求单"},
+    ...              {"value": "PO", "label": "采购订单"},
+    ...          ]},
+    ...     ],
+    ...     action_label="创建采购需求",
+    ...     action_id="create_pr",
+    ...     risk_level="medium",
+    ... )
+    """
+    payload = SlotFillPayload(
+        id=request_id,
+        step=step,
+        title=title,
+        message=message,
+        slots=slots,
+        action={"id": action_id, "label": action_label},
+        cancel_action={"id": "cancel", "label": cancel_label},
+        risk_level=risk_level,
+        alternatives=alternatives,
+        detail=detail,
     )
     return payload.to_event()
 

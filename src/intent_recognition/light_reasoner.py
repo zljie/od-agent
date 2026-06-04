@@ -49,9 +49,9 @@ _SYSTEM_PROMPT = """你是企业业务意图识别器（Light Intent Reasoner）
 
 _INTENT_TEMPLATES_DESCRIPTION = """
 ## 可用意图模板
+- create_object: 创建对象（create 操作，用于新增采购需求、新增订单等）
 - query_object: 查询对象（read, query 操作）
 - process_object: 处理对象（process, update 操作）
-- create_object: 创建对象（create 操作）
 - create_from_object: 基于对象创建新对象（create 操作）
 - delete_object: 删除对象（delete 操作）
 - submit_approval: 提交审批（submit_approval 操作）
@@ -88,12 +88,15 @@ _ONTOLOGY_ACTIONS_DESCRIPTION = """
 """
 
 _FILTER_FIELDS_DESCRIPTION = """
-## 常用过滤字段
+## 常用过滤字段（用于从用户输入中提取的值）
+- material: 物料名称或编码（如 "A4打印纸", "联想笔记本电脑"）
+- quantity: 采购数量（如 "10箱", "100个", "50台"）
+- delivery_date: 需求日期（如 "下周五", "2026-06-15"）
+- apply_dep: 申请部门（如 "销售部", "采购部", "IT部"）
 - pr_id: 采购需求编号
 - inquiry_id: 询价单编号
 - quotation_id: 报价单编号
 - po_id: 采购订单编号
-- apply_dep: 申请部门
 - vendor_id: 供应商编号
 - material_id: 物料编号
 - purchase_type: 采购类型（标准/紧急/生产）
@@ -155,7 +158,12 @@ def _build_user_prompt(
   "object_candidate": "识别的对象名（如 purchase_requests）",
   "object_label": "对象的中文标签（如 采购需求）",
   "action_candidate": "识别的动作（如 process, query, approve）",
-  "filters": {{"字段名": "提取的值", ...}},
+  "filters": {{
+    "material": "从输入中提取的物料名称或编码",
+    "quantity": "从输入中提取的数量",
+    "apply_dep": "从输入中提取的部门名称",
+    "delivery_date": "从输入中提取的日期"
+  }},
   "ambiguities": ["歧义说明1", "歧义说明2"],
   "candidate_next_goals": ["可能的下一个意图1", "可能的下一个意图2"],
   "missing_info": ["可能缺失的信息1", "可能缺失的信息2"],
@@ -176,6 +184,11 @@ def _build_user_prompt(
 5. confidence_breakdown 各项分数应该合理反映识别置信度
 
 请直接返回JSON，不要包含其他文字：
+```
+
+重要提示：filters字段必须从用户输入中提取已明确提供的信息，不要留空！
+- "为销售部门新增10箱A4打印纸" → filters={{"material": "A4打印纸", "quantity": "10箱", "apply_dep": "销售部"}}
+- "添加50台联想笔记本" → filters={{"material": "联想笔记本", "quantity": "50台"}}
 """
     return prompt
 

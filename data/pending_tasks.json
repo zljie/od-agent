@@ -1,0 +1,52 @@
+{
+  "TASK-20260604-83D09A": {
+    "task_id": "TASK-20260604-83D09A",
+    "action": "procurement/create_purchase_order_from_pr_and_quotation",
+    "object": "",
+    "missing_slots": [
+      "material",
+      "quantity",
+      "delivery_date",
+      "apply_dep"
+    ],
+    "filled_slots": {},
+    "status": "waiting_slots",
+    "created_at": "2026-06-04T15:08:12.494980",
+    "updated_at": "2026-06-04T15:08:12.494980",
+    "expires_at": "2026-06-04T15:38:12.494984",
+    "confidence": 0.95,
+    "metadata": {
+      "intent_label": "创建采购订单",
+      "slot_form_fields": [
+        {
+          "id": "material",
+          "label": "要创建的物料/对象名称",
+          "type": "text",
+          "required": true,
+          "placeholder": "请输入物料名称或编码"
+        },
+        {
+          "id": "quantity",
+          "label": "数量",
+          "type": "number",
+          "required": true,
+          "placeholder": "请输入采购数量"
+        },
+        {
+          "id": "delivery_date",
+          "label": "期望日期",
+          "type": "date",
+          "required": true,
+          "placeholder": "请选择需求日期"
+        },
+        {
+          "id": "apply_dep",
+          "label": "申请部门",
+          "type": "text",
+          "required": true,
+          "placeholder": "请输入申请部门"
+        }
+      ]
+    }
+  }
+}

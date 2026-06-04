@@ -1,6 +1,6 @@
 """Step 1: Intent Recognition for the 5-step pipeline."""
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from .models import IntentRecognitionResult, SemanticContract, SemanticContractSlot
 
 if TYPE_CHECKING:
@@ -28,9 +28,10 @@ class Step1Recognizer:
         self.skill_manager = None
         self._slot_extractor = None  # Lazy import
         self._composite_pipeline = None  # Lazy import
+        # Phase 4.1: Pending HITL task for multi-round slot filling (Rule 1)
+        self._pending_hitl_task: Optional[Dict[str, Any]] = None
 
-    def _get_composite_pipeline(self, task_id: str = ""):
-        """Get the composite intent recognition pipeline (Layer 0-7)."""
+    def _get_composite_pipeline(self, task_id: str = "", pending_hitl_task: Optional[Dict[str, Any]] = None):
         if not _COMPOSITE_AVAILABLE:
             return None
         if self._composite_pipeline is None:
@@ -39,17 +40,35 @@ class Step1Recognizer:
                 use_deep_reasoning=True,
                 use_hitl=True,
                 task_id=task_id,
+                pending_hitl_task=pending_hitl_task,
             )
-        elif task_id:
+        else:
             # Update task_id on existing pipeline
-            self._composite_pipeline.task_id = task_id
+            if task_id:
+                self._composite_pipeline.task_id = task_id
+            # Only update pending_hitl_task if provided (don't override with None)
+            if pending_hitl_task is not None:
+                self._composite_pipeline.pending_hitl_task = pending_hitl_task
         return self._composite_pipeline
 
-    def _get_procurement_router(self):
-        if self.procurement_router is None:
-            from ..procurement.intent_router import IntentRouter
-            self.procurement_router = IntentRouter()
-        return self.procurement_router
+    def _get_slot_form_fields(self, missing_slots: List[str], object_name: str = "") -> List[Dict[str, Any]]:
+        """Convert missing slots to frontend form field definitions.
+
+        Parameters
+        ----------
+        missing_slots:
+            List of missing slot names (e.g., ["material", "quantity"]).
+        object_name:
+            The business object name (e.g., "purchase_requests").
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            Slot field definitions for the frontend slot fill form.
+        """
+        from ..intent_recognition.slot_completion_engine import SlotCompletionEngine
+        engine = SlotCompletionEngine()
+        return engine.to_slot_form_fields(missing_slots, object_name)
 
     def _get_slot_extractor(self):
         """Get the slot extractor for condition extraction."""
@@ -178,9 +197,15 @@ class Step1Recognizer:
         condition_summary = "、".join(condition_parts) if condition_parts else ""
         
         # 2. Try composite intent pipeline first (Phase 2-3 enhanced recognition)
-        composite_pipeline = self._get_composite_pipeline(task_id=task_id)
+        composite_pipeline = self._get_composite_pipeline(
+            task_id=task_id,
+            pending_hitl_task=self._pending_hitl_task,  # Pass current pending task
+        )
         if composite_pipeline:
             composite_result = composite_pipeline.run(user_input)
+            # Sync updated pending_hitl_task back (important for slot-fill protocol)
+            if composite_pipeline.pending_hitl_task is not None:
+                self._pending_hitl_task = composite_pipeline.pending_hitl_task
             if composite_result.top_candidate:
                 top = composite_result.top_candidate
                 operation_type = self._map_action_to_operation(top.intent_id)
@@ -200,7 +225,8 @@ class Step1Recognizer:
                     normalized_term=top.params.get("normalized_object_term"),
                     operation_type=operation_type,
                     risk_level=risk_level,
-                    requires_confirmation=(composite_result.final_decision.value == "hitl"),
+                    # HITL or create operations always require confirmation
+                    requires_confirmation=(composite_result.final_decision.value == "hitl") or (operation_type == "create"),
                     confidence=top.confidence,
                     alternative_intents=[c.intent_id for c in composite_result.candidates[1:4]],
                     extracted_slots=slots_dict,
@@ -215,44 +241,9 @@ class Step1Recognizer:
                     semantic_contract=semantic_contract,
                 )
 
-        # 3. Try procurement router (legacy path)
-        print(f"[Step1Recognizer][INFO] 复合管道未命中，进入旧路由")
-        router = self._get_procurement_router()
-        match = router.route(user_input)
-
-        if match:
-            # Determine operation type from action
-            operation_type = self._map_action_to_operation(match.intent.action)
-
-            # Determine risk level from operation type
-            risk_level = self._assess_risk(operation_type)
-
-            # Extract object term from user input
-            object_term = self._extract_object_term(user_input)
-
-            # Check if normalization happened
-            normalized_term = None
-            synonyms = self._get_synonyms(object_term)
-            if object_term not in synonyms:
-                normalized_term = object_term
-
-            return IntentRecognitionResult(
-                intent=match.intent.id,
-                intent_label=match.intent.name,
-                object_term=object_term,
-                normalized_term=normalized_term,
-                operation_type=operation_type,
-                risk_level=risk_level,
-                requires_confirmation=match.intent.required_slots and len(match.missing_slots) > 0,
-                confidence=match.confidence / 100.0 if hasattr(match, 'confidence') else 1.0,
-                alternative_intents=[],
-                extracted_slots=slots_dict,
-                temporal_context=temporal_ctx,
-                condition_summary=condition_summary,
-            )
-
-        # 4. Fallback: use skill manager
-        print(f"[Step1Recognizer][INFO] 所有路径未命中，进入Fallback")
+        # Legacy path removed - composite pipeline is the only path
+        # 3. Fallback: use skill manager
+        print(f"[Step1Recognizer][INFO] 复合管道未返回有效候选，进入Fallback")
         result = self._fallback_recognition(user_input, slots_dict, temporal_ctx, condition_summary)
         print(f"[Step1Recognizer][INFO] Fallback识别结果 | intent={result.intent} | confidence={result.confidence:.4f}")
         return result
@@ -260,7 +251,8 @@ class Step1Recognizer:
     def _map_action_to_operation(self, action: str) -> str:
         """Map action ID to operation type."""
         action_lower = action.lower()
-        if "create" in action_lower or "add" in action_lower:
+        # generate_order is a create operation
+        if "create" in action_lower or "add" in action_lower or "generate" in action_lower:
             return "create"
         if "update" in action_lower or "approve" in action_lower:
             return "update"

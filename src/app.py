@@ -353,7 +353,8 @@ def create_app() -> FastAPI:
         if not confirmation:
             return {"error": "confirmation_result is required"}
 
-        task_id = confirmation.get("task_id", "")
+        raw_task_id = confirmation.get("task_id", "")
+        task_id = raw_task_id.removeprefix("slot-fill-")
         action = confirmation.get("action", "")  # confirm / cancel
 
         if action == "cancel":
@@ -1521,6 +1522,85 @@ def create_app() -> FastAPI:
                 } for s in ontology.scenarios
             ]
         }
+
+    # ── Agent Tool Manifest API (AI-Facing) ────────────────────────────────────
+    from .agent_api import get_tool_registry
+    from .agent_api.validate import validate_input
+    from .agent_api.dry_run import dry_run
+    from .agent_api.invoke import invoke
+    from .agent_api.hitl import resume_hitl
+
+    @app.get("/agent/manifest/tools")
+    async def list_agent_tools():
+        """Return all registered Agent tools (lightweight summary)."""
+        registry = get_tool_registry()
+        return {"tools": registry.list_tools()}
+
+    @app.get("/agent/manifest/tools/{tool_name}")
+    async def get_agent_tool(tool_name: str):
+        """Return full manifest for a specific tool."""
+        registry = get_tool_registry()
+        manifest = registry.get_tool(tool_name)
+        if manifest is None:
+            raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+        return manifest
+
+    @app.get("/agent/manifest/tools/{tool_name}/schema/input")
+    async def get_tool_input_schema(tool_name: str):
+        """Return input JSON schema for a specific tool."""
+        registry = get_tool_registry()
+        schema = registry.get_input_schema(tool_name)
+        if schema is None:
+            raise HTTPException(status_code=404, detail=f"Input schema for '{tool_name}' not found")
+        return schema
+
+    @app.post("/agent/tools/{tool_name}/validate")
+    async def validate_tool_params(tool_name: str, request: Request):
+        """Validate input parameters against a tool's input schema."""
+        body = await request.json()
+        input_params = body.get("input", {})
+        session_id = body.get("session_id")
+        result = validate_input(tool_name, input_params, session_id)
+        return result.to_dict()
+
+    @app.post("/agent/tools/{tool_name}/dry-run")
+    async def dry_run_tool(tool_name: str, request: Request):
+        """Dry-run a tool: simulate execution and return a confirmation card."""
+        body = await request.json()
+        input_params = body.get("input", {})
+        session_id = body.get("session_id")
+        result = dry_run(tool_name, input_params, session_id)
+        if not result.get("success") and "not found" in str(result.get("error", "")):
+            raise HTTPException(status_code=404, detail=result.get("error"))
+        return result
+
+    @app.post("/agent/tools/{tool_name}/invoke")
+    async def invoke_tool(tool_name: str, request: Request):
+        """Formally invoke a tool with validated parameters."""
+        body = await request.json()
+        input_params = body.get("input", {})
+        dry_run_id = body.get("dry_run_id")
+        confirmed = body.get("confirmed", True)
+        session_id = body.get("session_id")
+        result = invoke(tool_name, input_params, dry_run_id, confirmed, session_id)
+        if not result.get("success") and "not found" in str(result.get("error", "")):
+            raise HTTPException(status_code=404, detail=result.get("error"))
+        return result
+
+    @app.post("/hitl/resume")
+    async def hitl_resume(request: Request):
+        """Resume a pending HITL task (confirm / cancel / edit / supplement)."""
+        body = await request.json()
+        task_id = body.get("task_id")
+        action = body.get("action")
+        payload = body.get("payload", {})
+        session_id = body.get("session_id")
+        if not task_id:
+            raise HTTPException(status_code=400, detail="task_id is required")
+        if not action:
+            raise HTTPException(status_code=400, detail="action is required")
+        result = resume_hitl(task_id, action, payload, session_id)
+        return result
 
     # ── Procurement Management ────────────────────────────────────────────────
 

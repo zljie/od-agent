@@ -431,14 +431,25 @@ class SemanticContract:
                 "params": cand.params,
             })
 
-        # Check deep reasoning for HITL info
+        # Check deep reasoning and slot check for HITL info
         hitl_triggered = False
         hitl_reason = ""
         missing_info = []
-        deep_result = composite_result.layer_results.get("layer_4_deep_reasoning", {})
-        if deep_result:
-            hitl_triggered = deep_result.get("recommended_decision") == "hitl"
-            missing_info = deep_result.get("missing_info", [])
+
+        # Priority 1: slot check — missing required slots always triggers HITL
+        slot_check = composite_result.layer_results.get("layer_2_5_slot_completion", {})
+        if slot_check.get("missing_required"):
+            hitl_triggered = True
+            hitl_reason = "missing_required_slots"
+            missing_info = slot_check.get("missing_required", [])
+
+        # Priority 2: deep reasoning recommendation (only if not already set by slot check)
+        if not hitl_triggered:
+            deep_result = composite_result.layer_results.get("layer_4_deep_reasoning", {})
+            if deep_result:
+                hitl_triggered = deep_result.get("recommended_decision") == "hitl"
+                hitl_reason = deep_result.get("recommended_decision", "")
+                missing_info = deep_result.get("missing_info", [])
 
         # Extract object from intent_id
         # Format 1: "object/action" (e.g., "purchase_requests/list") -> object = purchase_requests
