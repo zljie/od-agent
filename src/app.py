@@ -20,7 +20,49 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 # Suppress httpx/httpcore event loop warnings (Python 3.13 compatibility issue)
+import warnings
 warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
+
+# Patch httpcore to suppress "Event loop is closed" exceptions globally.
+# This is a known Python 3.13 issue where AsyncConnectionPool._close_connections
+# raises RuntimeError when called after the event loop is already closed.
+# The patch wraps all awaitable _close_connections calls to catch and ignore this error.
+def _install_httpcore_loop_closed_patch():
+    try:
+        import asyncio
+        import httpcore._async.connection_pool as _pool_mod
+
+        _orig_close = _pool_mod.AsyncConnectionPool._close_connections
+
+        async def _safe_close(self, closing_connections=None):
+            try:
+                await _orig_close(self, closing_connections)
+            except RuntimeError as e:
+                if "Event loop is closed" not in str(e):
+                    raise
+            except Exception:
+                pass
+
+        _pool_mod.AsyncConnectionPool._close_connections = _safe_close
+
+        # Also patch the base _Connection.aclose method
+        import httpcore._async.connection as _conn_mod
+        _orig_aclose = _conn_mod.AsyncConnection.aclose
+
+        async def _safe_aclose(self):
+            try:
+                await _orig_aclose(self)
+            except RuntimeError as e:
+                if "Event loop is closed" not in str(e):
+                    raise
+            except Exception:
+                pass
+
+        _conn_mod.AsyncConnection.aclose = _safe_aclose
+    except Exception:
+        pass
+
+_install_httpcore_loop_closed_patch()
 
 from .agent import CustomerServiceAgent, get_agent, load_agent_config, reload_agent, save_agent_config
 from .diagnostics import DiagnosticsCollector
@@ -161,21 +203,9 @@ async def lifespan(app: FastAPI):
     yield
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"{ts} 🛑 Shutting down Customer Service Agent...")
-    # Clean up httpx async clients to prevent "Event loop is closed" warnings
+    # Suppress httpx event loop closed errors during shutdown.
     try:
-        import asyncio
-        from httpx._client import ASGITransport, AsyncClient
-
-        # Cancel any pending httpx clients
-        for name in dir():
-            obj = locals().get(name)
-            if isinstance(obj, AsyncClient):
-                try:
-                    await obj.aclose()
-                except Exception:
-                    pass
-    except ImportError:
-        pass
+        _install_httpcore_loop_closed_patch()
     except Exception:
         pass
 

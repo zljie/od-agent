@@ -44,6 +44,13 @@ class SSEEventType(str, Enum):
     FRAME_EXECUTION = "frame.execution.created"
     FRAME_RESPONSE = "frame.response.created"
     ERROR_EVENT = "error"
+    STREAM_START = "stream.start"  # Emitted at the start of a stream to indicate mode
+
+
+# ─── Stream mode ────────────────────────────────────────────────────────────────
+# Determines whether this stream uses the 5-step pipeline or general chat.
+STREAM_MODE_FIVE_STEP = "five_step"
+STREAM_MODE_GENERAL = "general_chat"
 
 
 # ─── Payload dataclasses ───────────────────────────────────────────────────────
@@ -118,8 +125,13 @@ class ContentPayload:
 class DonePayload:
     """Sentinel event sent when the full stream is complete."""
 
+    mode: str = STREAM_MODE_GENERAL  # "five_step" or "general_chat"
+
     def to_event(self) -> Dict[str, Any]:
-        return {"event": SSEEventType.DONE.value, "data": "[DONE]"}
+        return {
+            "event": SSEEventType.DONE.value,
+            "data": json.dumps({"mode": self.mode}, ensure_ascii=False),
+        }
 
 
 @dataclass
@@ -441,6 +453,7 @@ class ErrorPayload:
         return {"event": SSEEventType.ERROR_EVENT.value, "data": json.dumps(data, ensure_ascii=False)}
 
 
+
 # ─── Stream event union type ───────────────────────────────────────────────────
 
 SSEEvent = (
@@ -487,8 +500,16 @@ def content(text: str) -> Dict[str, Any]:
     return ContentPayload(content=text).to_event()
 
 
-def done() -> Dict[str, Any]:
-    return DonePayload().to_event()
+def done(mode: str = STREAM_MODE_GENERAL) -> Dict[str, Any]:
+    return DonePayload(mode=mode).to_event()
+
+
+def stream_start(mode: str = STREAM_MODE_GENERAL) -> Dict[str, Any]:
+    """Emit stream.start event at the beginning of a stream to indicate the mode."""
+    return {
+        "event": SSEEventType.STREAM_START.value,
+        "data": json.dumps({"mode": mode}, ensure_ascii=False),
+    }
 
 
 def tool_call(

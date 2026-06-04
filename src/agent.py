@@ -1,9 +1,10 @@
 """Customer service agent implementation using AgentScope ReAct Agent."""
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.credential import OpenAICredential
@@ -201,6 +202,83 @@ class CustomerServiceAgent:
     def is_five_step_enabled(self) -> bool:
         config = load_agent_config()
         return config.get("enable_five_step", False)
+
+    # =============================================================================
+    # Domain Gate: 二分法入口检测
+    # 快速判断用户输入是否命中采购本体领域
+    # - 命中 → 进入 five_step pipeline
+    # - 未命中 → 直接走 LLM 普通聊天
+    # =============================================================================
+
+    PROCUREMENT_DOMAIN_KEYWORDS: List[str] = [
+        # 业务对象
+        "采购需求", "采购订单", "询价单", "报价单", "采购计划", "物料需求",
+        "供应商", "物料", "合同", "收料", "送货",
+        # 动作
+        "创建", "查询", "审批", "通过", "驳回", "发布", "比价", "生成",
+        # 标识符
+        "PR-", "PR_", "PO-", "PO_", "RFQ", "QUO", "INQ",
+        # 状态
+        "未执行", "已执行", "执行中", "pending", "blocked", "active",
+        # 业务术语
+        "采购类型", "采购部", "需求部门", "供应商", "物料编码", "工厂",
+        "税率", "含税", "净价", "单价", "数量", "金额", "总价",
+    ]
+
+    PROCUREMENT_DOMAIN_PATTERNS: List[str] = [
+        r'PR[_-]?\d{8}[_-]?\d{3,}',  # PR-20260604-001
+        r'PO[_-]?\d{8}[_-]?\d{3,}',  # PO-20260604-001
+        r'RFQ[_-]?\d+',               # RFQ-001
+        r'QUO[_-]?\d+',               # QUO-001
+        r'\d{8}[/-]\d{3,}',           # 20260604/001
+    ]
+
+    def _is_procurement_domain(self, user_input: str) -> Tuple[bool, float]:
+        """快速检测用户输入是否命中采购本体领域.
+
+        采用轻量级检测策略：
+        1. 关键词匹配（OR 逻辑）
+        2. 模式匹配（标识符格式）
+        3. 不调用 LLM，保证低延迟
+
+        Args:
+            user_input: 用户原始输入
+
+        Returns:
+            Tuple[bool, float]: (是否命中, 置信度 0.0-1.0)
+        """
+        if not user_input or not user_input.strip():
+            return False, 0.0
+
+        text = user_input.strip()
+        text_lower = text.lower()
+
+        matched_keywords: List[str] = []
+        for kw in self.PROCUREMENT_DOMAIN_KEYWORDS:
+            if kw.lower() in text_lower:
+                matched_keywords.append(kw)
+
+        # 检查模式匹配
+        matched_patterns: List[str] = []
+        for pattern in self.PROCUREMENT_DOMAIN_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                matched_patterns.append(pattern)
+
+        # 计算置信度
+        keyword_score = min(len(matched_keywords) / 3.0, 1.0)  # 3个关键词=100%
+        pattern_score = 0.5 if matched_patterns else 0.0       # 有模式匹配+50%
+
+        confidence = min(keyword_score + pattern_score, 1.0)
+
+        # 阈值：>= 0.3 认为是采购领域
+        is_domain = confidence >= 0.3
+
+        print(f"[DomainGate] 检测结果 | 输入='{text[:50]}...' | 匹配关键词={matched_keywords} | "
+              f"匹配模式={len(matched_patterns)} | 置信度={confidence:.2f} | 命中={is_domain}")
+
+        return is_domain, confidence
+
+    # =============================================================================
 
     def _load_intent_rules(self) -> None:
         """Load intent routing rules from config."""
@@ -670,14 +748,38 @@ class CustomerServiceAgent:
         - delegate_llm: LLM stream via _llm_chat_stream()
         - EXECUTE: tool_call / tool_result / content events from TaskExecutor
         """
-        from .sse_stream import done
+        from .sse_stream import done, STREAM_MODE_GENERAL, stream_start
 
         # Check if five-step mode is enabled
         config = load_agent_config()
         enable_five_step = config.get("enable_five_step", False)
 
+        # =========================================================================
+        # Domain Gate: 二分法入口检测
+        # 先判断是否命中采购本体领域，只有命中的才进入 five_step pipeline
+        # =========================================================================
         if enable_five_step:
-            # Use the new 5-step pipeline
+            is_procurement, domain_confidence = self._is_procurement_domain(user_input)
+
+            if not is_procurement:
+                # 未命中采购领域 → 直接走 LLM 普通聊天
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [DomainGate] 未命中采购领域({domain_confidence:.2f}) → 委托LLM")
+                # 先发送 stream.start 事件
+                yield stream_start(mode=STREAM_MODE_GENERAL)
+                async for chunk in self._llm_chat_stream(user_input):
+                    ev_type = chunk.get("event", "")
+                    if ev_type:
+                        print(f"{ts} [LLM STREAM CHUNK] event={ev_type}, content={chunk.get('content', '')[:200]}")
+                    yield chunk
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                print(f"{ts} [LLM STREAM] finished")
+                yield done(mode=STREAM_MODE_GENERAL)
+                return
+
+            # 命中采购领域 → 进入 five_step pipeline
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"{ts} [DomainGate] 命中采购领域({domain_confidence:.2f}) → 进入FiveStepPipeline")
             from .five_step.pipeline import FiveStepPipeline
             pipeline = FiveStepPipeline(agent=self, session_id=getattr(self, '_session_id', None))
             async for event in pipeline.run(user_input, session_id=getattr(self, '_session_id', None)):
@@ -706,6 +808,9 @@ class CustomerServiceAgent:
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"{ts} [CHAT STREAM] system_prompt={self.system_prompt[:100]}...")
 
+        # Emit stream.start for non-five_step mode
+        yield stream_start(mode=STREAM_MODE_GENERAL)
+
         async for event in self._skill_manager.run_pipeline_stream(user_input):
             ev_type = event.get("event", "")
 
@@ -720,7 +825,7 @@ class CustomerServiceAgent:
                         yield chunk
                     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
                     print(f"{ts} [LLM STREAM] finished")
-                    yield done()
+                    yield done(mode=STREAM_MODE_GENERAL)
                 continue
 
             ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]

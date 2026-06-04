@@ -60,6 +60,7 @@ from .step2_ontology import Step2OntologyResolver
 from .step3_planner import Step3TaskPlanner
 from .step4_executor import Step4ConnectorExecutor
 from .step5_response import Step5ResponseGenerator
+from ..sse_stream import STREAM_MODE_FIVE_STEP
 
 
 class ActionDriftDetector:
@@ -222,6 +223,7 @@ class FiveStepPipeline:
         from ..sse_stream import (
             step_update, done, content, tool_call, tool_result, error_event
         )
+        from ..sse_stream import STREAM_MODE_FIVE_STEP
         return step_update, done, content, tool_call, tool_result, error_event
 
     def _save_and_emit_hitl(
@@ -450,10 +452,14 @@ class FiveStepPipeline:
         Yields SSE events for each step.
         """
         from ..audit import create_task_logger
+        from ..sse_stream import stream_start, STREAM_MODE_FIVE_STEP
 
         task_id = self._generate_task_id()
         self.session_id = session_id or self.session_id
         task_logger = create_task_logger(task_id, user_input)
+
+        # Emit stream.start FIRST — before any other events
+        yield stream_start(mode=STREAM_MODE_FIVE_STEP)
 
         # Step timing
         step_times: Dict[int, float] = {}
@@ -617,8 +623,8 @@ class FiveStepPipeline:
                 )
                 # Emit the HITL event to frontend (hitl_event was saved but not yielded yet)
                 yield hitl_event
-                task_logger.emit_sse_event(done())
-                yield done()
+                task_logger.emit_sse_event(done(mode=STREAM_MODE_FIVE_STEP))
+                yield done(mode=STREAM_MODE_FIVE_STEP)
                 return
 
             s1_complete = step_update(
@@ -693,8 +699,8 @@ class FiveStepPipeline:
                 )
                 # Emit the HITL event to frontend
                 yield cr_event
-                task_logger.emit_sse_event(done())
-                yield done()
+                task_logger.emit_sse_event(done(mode=STREAM_MODE_FIVE_STEP))
+                yield done(mode=STREAM_MODE_FIVE_STEP)
                 return
 
             s2_complete = step_update(
@@ -822,8 +828,8 @@ class FiveStepPipeline:
                 )
                 # Emit the HITL event to frontend
                 yield cr_event
-                task_logger.emit_sse_event(done())
-                yield done()
+                task_logger.emit_sse_event(done(mode=STREAM_MODE_FIVE_STEP))
+                yield done(mode=STREAM_MODE_FIVE_STEP)
                 return
 
             # ===== STEP 4: Execution =====
@@ -938,7 +944,7 @@ class FiveStepPipeline:
             task_logger.emit_sse_event(content_event)
             yield content_event
 
-            done_event = done()
+            done_event = done(mode=STREAM_MODE_FIVE_STEP)
             task_logger.emit_sse_event(done_event)
             yield done_event
 
@@ -960,7 +966,7 @@ class FiveStepPipeline:
             task_logger.error(f"Pipeline error: {e}", source="Pipeline")
             task_logger.close(final_status="error")
             yield error_event
-            done_event = done()
+            done_event = done(mode=STREAM_MODE_FIVE_STEP)
             task_logger.emit_sse_event(done_event)
             yield done_event
 
@@ -984,6 +990,7 @@ class FiveStepPipeline:
         4. Clear the session on completion
         """
         from ..sse_stream import done as done_fn, content as content_fn, step_update as step_update_fn, error_event
+        from ..sse_stream import STREAM_MODE_FIVE_STEP
         from .hitl_session_store import load_hitl_session, clear_hitl_session
         from ..audit import get_task_logger
 
@@ -998,7 +1005,7 @@ class FiveStepPipeline:
                 recoverable=False,
             )
             yield err
-            yield done_fn()
+            yield done_fn(mode=STREAM_MODE_FIVE_STEP)
             return
 
         # CRITICAL: Load saved HITL session from global store
@@ -1031,7 +1038,7 @@ class FiveStepPipeline:
                 # Emit a message indicating the session was partially recovered
                 c = content_fn(f"已恢复任务 {task_id}，但部分上下文丢失。请重新提交表单。")
                 task_logger.emit_sse_event(c); yield c
-                d = done_fn()
+                d = done_fn(mode=STREAM_MODE_FIVE_STEP)
                 task_logger.emit_sse_event(d)
                 yield d
                 return
@@ -1045,7 +1052,7 @@ class FiveStepPipeline:
             task_logger.emit_sse_event(s5a); yield s5a
             c = content_fn("操作已根据您的确认继续执行。")
             task_logger.emit_sse_event(c); yield c
-            d = done_fn()
+            d = done_fn(mode=STREAM_MODE_FIVE_STEP)
             task_logger.emit_sse_event(d)
             yield d
             return
@@ -1160,7 +1167,7 @@ class FiveStepPipeline:
 
                 yield hitl_event
                 task_logger.emit_sse_event(hitl_event)
-                d = done_fn()
+                d = done_fn(mode=STREAM_MODE_FIVE_STEP)
                 task_logger.emit_sse_event(d)
                 yield d
                 return
@@ -1361,7 +1368,7 @@ class FiveStepPipeline:
 
         # Clear the HITL session after successful completion
         clear_hitl_session(task_id)
-        d = done_fn()
+        d = done_fn(mode=STREAM_MODE_FIVE_STEP)
         task_logger.emit_sse_event(d)
         task_logger.close(final_status="completed")
         yield d
@@ -1385,7 +1392,7 @@ class FiveStepPipeline:
             status="active",
         )
         yield content_fn("任务已从步骤 {} 恢复执行".format(from_step))
-        yield done_fn()
+        yield done_fn(mode=STREAM_MODE_FIVE_STEP)
 
     def _build_confirmation_message(self, intent_result, plan_result) -> str:
         """Build a detailed confirmation message for create operations.
