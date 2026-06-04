@@ -1,50 +1,84 @@
 {
-  "TASK-20260604-83D09A": {
-    "task_id": "TASK-20260604-83D09A",
-    "action": "procurement/create_purchase_order_from_pr_and_quotation",
+  "TASK-20260604-07A523": {
+    "task_id": "TASK-20260604-07A523",
+    "action": "create_purchase_request",
     "object": "",
     "missing_slots": [
-      "material",
-      "quantity",
-      "delivery_date",
-      "apply_dep"
+      "物料编码",
+      "交货日期",
+      "工厂",
+      "公司",
+      "采购类型"
     ],
     "filled_slots": {},
     "status": "waiting_slots",
-    "created_at": "2026-06-04T15:08:12.494980",
-    "updated_at": "2026-06-04T15:08:12.494980",
-    "expires_at": "2026-06-04T15:38:12.494984",
-    "confidence": 0.95,
+    "created_at": "2026-06-04T17:16:53.774097",
+    "updated_at": "2026-06-04T17:16:53.774097",
+    "expires_at": "2026-06-04T17:46:53.774102",
+    "confidence": 0.9,
     "metadata": {
-      "intent_label": "创建采购订单",
+      "intent_label": "创建采购需求",
       "slot_form_fields": [
         {
-          "id": "material",
-          "label": "要创建的物料/对象名称",
+          "id": "物料编码",
+          "label": "物料编码",
           "type": "text",
           "required": true,
-          "placeholder": "请输入物料名称或编码"
+          "placeholder": "请输入物料编码"
         },
         {
-          "id": "quantity",
-          "label": "数量",
-          "type": "number",
-          "required": true,
-          "placeholder": "请输入采购数量"
-        },
-        {
-          "id": "delivery_date",
-          "label": "期望日期",
-          "type": "date",
-          "required": true,
-          "placeholder": "请选择需求日期"
-        },
-        {
-          "id": "apply_dep",
-          "label": "申请部门",
+          "id": "交货日期",
+          "label": "交货日期",
           "type": "text",
           "required": true,
-          "placeholder": "请输入申请部门"
+          "placeholder": "请输入交货日期"
+        },
+        {
+          "id": "工厂",
+          "label": "工厂",
+          "type": "text",
+          "required": true,
+          "placeholder": "请输入工厂"
+        },
+        {
+          "id": "公司",
+          "label": "公司",
+          "type": "text",
+          "required": true,
+          "placeholder": "请输入公司"
+        },
+        {
+          "id": "采购类型",
+          "label": "采购类型",
+          "type": "text",
+          "required": true,
+          "placeholder": "请输入采购类型"
+        }
+      ]
+    }
+  },
+  "TASK-20260604-8D5C63": {
+    "task_id": "TASK-20260604-8D5C63",
+    "action": "unknown",
+    "object": "",
+    "missing_slots": [
+      "用户未提供采购相关的业务对象或动作，输入内容与采购域无关"
+    ],
+    "filled_slots": {},
+    "status": "waiting_slots",
+    "created_at": "2026-06-04T17:17:42.799221",
+    "updated_at": "2026-06-04T17:17:42.799221",
+    "expires_at": "2026-06-04T17:47:42.799224",
+    "confidence": 0.02,
+    "metadata": {
+      "intent_label": "非采购领域行程计算问题",
+      "slot_form_fields": [
+        {
+          "id": "用户未提供采购相关的业务对象或动作，输入内容与采购域无关",
+          "label": "用户未提供采购相关的业务对象或动作，输入内容与采购域无关",
+          "type": "text",
+          "required": true,
+          "placeholder": "请输入用户未提供采购相关的业务对象或动作，输入内容与采购域无关"
         }
       ]
     }

@@ -1,7 +1,10 @@
 """
-Composite Intent Recognition Pipeline
-====================================
+Composite Intent Recognition Pipeline (DEPRECATED)
+===============================================
 Phase 3: End-to-end 7-layer intent recognition pipeline.
+
+.. deprecated::
+    This pipeline is deprecated. Use CoreIntentPipeline from core_pipeline.py instead.
 
 Orchestrates Layers 0-7 (+ Layer 2.5 Slot Completion):
     Layer 0:  InputPreprocessor        (normalization + tokenization)
@@ -15,6 +18,9 @@ Orchestrates Layers 0-7 (+ Layer 2.5 Slot Completion):
     Layer 7:  DynamicSlotResolver       (master-data lookup)
 
 Priority rule: missing_required_slots > 0 → decision=clarify (blocks execution).
+
+Migration:
+    Replace CompositeIntentPipeline with CoreIntentPipeline from core_pipeline.py
 """
 
 import time
@@ -132,8 +138,20 @@ class SlotFillEvent:
 class CompositeIntentPipeline:
     """End-to-end composite intent recognition pipeline.
 
+    .. deprecated::
+        This class is deprecated. Use CoreIntentPipeline from core_pipeline.py instead.
+
     Run ``run()`` with a user input string to get a ``CompositeIntentResult``
     with the resolved intent and any HITL request.
+
+    Migration
+    ---------
+    Replace with CoreIntentPipeline:
+
+        from intent_recognition import CoreIntentPipeline
+
+        pipeline = CoreIntentPipeline()
+        result = pipeline.run(user_input)
 
     Attributes
     ----------

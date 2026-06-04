@@ -24,13 +24,25 @@ class SSEEventType(str, Enum):
     THINK = "think"
     THINK_DONE = "think_done"
     CONTENT = "content"
+    CONTENT_DELTA = "message.delta"
+    CONTENT_COMPLETED = "message.completed"
     DONE = "done"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
     PLAN = "plan"
     STEP_UPDATE = "step_update"
+    STEP_STARTED = "runtime.step.started"
+    STEP_COMPLETED = "runtime.step.completed"
+    STEP_FAILED = "runtime.step.failed"
     CONFIRM_REQUEST = "confirm_request"
     SLOT_FILL_REQUEST = "slot_fill_request"
+    HITL_CREATED = "hitl.created"
+    HITL_RESOLVED = "hitl.resolved"
+    FRAME_INPUT = "frame.input.created"
+    FRAME_SEMANTIC = "frame.semantic.created"
+    FRAME_DECISION = "frame.decision.created"
+    FRAME_EXECUTION = "frame.execution.created"
+    FRAME_RESPONSE = "frame.response.created"
     ERROR_EVENT = "error"
 
 
@@ -655,3 +667,199 @@ def error_event(
         recoverable=recoverable, suggestions=suggestions
     )
     return payload.to_event()
+
+
+# ─── Frame Event Builders (per PRD Frontend Architecture Section 7) ──────────
+
+def frame_input_event(
+    task_id: str,
+    trace_id: str,
+    raw_input: str,
+    normalized_input: str,
+    input_type: str = "text",
+) -> Dict[str, Any]:
+    """Emit frame.input.created event when Input Frame is created (Step 1).
+
+    Per PRD Section 7.2, this is emitted after preprocessing is complete.
+    """
+    return {
+        "event": SSEEventType.FRAME_INPUT.value,
+        "data": json.dumps({
+            "taskId": task_id,
+            "traceId": trace_id,
+            "payload": {
+                "rawInput": raw_input,
+                "normalizedInput": normalized_input,
+                "inputType": input_type,
+            }
+        }, ensure_ascii=False),
+    }
+
+
+def frame_semantic_event(
+    task_id: str,
+    trace_id: str,
+    action_intent: str,
+    ontology_object: str,
+    conditions: Optional[List[Dict[str, Any]]] = None,
+    confidence: float = 0.0,
+    slots: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Emit frame.semantic.created event when Semantic Frame is created (Step 2).
+
+    Per PRD Section 7.2, this is emitted after semantic understanding.
+    """
+    return {
+        "event": SSEEventType.FRAME_SEMANTIC.value,
+        "data": json.dumps({
+            "taskId": task_id,
+            "traceId": trace_id,
+            "payload": {
+                "actionIntent": action_intent,
+                "ontologyObject": ontology_object,
+                "conditions": conditions or [],
+                "confidence": {"overall": confidence},
+                "slots": slots or {},
+            }
+        }, ensure_ascii=False),
+    }
+
+
+def frame_decision_event(
+    task_id: str,
+    trace_id: str,
+    decision: str,
+    need_hitl: bool,
+    route_runtime: str,
+    route_target: str,
+    reason: str = "",
+) -> Dict[str, Any]:
+    """Emit frame.decision.created event when Decision Frame is created (Step 3).
+
+    Per PRD Section 7.2, this is emitted after routing decision.
+    """
+    return {
+        "event": SSEEventType.FRAME_DECISION.value,
+        "data": json.dumps({
+            "taskId": task_id,
+            "traceId": trace_id,
+            "payload": {
+                "decision": decision,
+                "needHitl": need_hitl,
+                "route": {
+                    "runtime": route_runtime,
+                    "target": route_target,
+                },
+                "reason": reason,
+            }
+        }, ensure_ascii=False),
+    }
+
+
+def frame_execution_event(
+    task_id: str,
+    trace_id: str,
+    runtime: str,
+    target: str,
+    plan: Optional[List[Dict[str, Any]]] = None,
+    status: str = "running",
+) -> Dict[str, Any]:
+    """Emit frame.execution.created event when Execution Frame is created (Step 4).
+
+    Per PRD Section 7.2, this is emitted when execution starts.
+    """
+    return {
+        "event": SSEEventType.FRAME_EXECUTION.value,
+        "data": json.dumps({
+            "taskId": task_id,
+            "traceId": trace_id,
+            "payload": {
+                "runtime": runtime,
+                "target": target,
+                "plan": plan or [],
+                "status": status,
+            }
+        }, ensure_ascii=False),
+    }
+
+
+def frame_response_event(
+    task_id: str,
+    trace_id: str,
+    message_type: str,
+    content: str,
+    actions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Emit frame.response.created event when Response Frame is created (Step 5).
+
+    Per PRD Section 7.2, this is emitted when the final response is generated.
+    """
+    return {
+        "event": SSEEventType.FRAME_RESPONSE.value,
+        "data": json.dumps({
+            "taskId": task_id,
+            "traceId": trace_id,
+            "payload": {
+                "messageType": message_type,
+                "content": content,
+                "traceId": trace_id,
+                "actions": actions or [],
+            }
+        }, ensure_ascii=False),
+    }
+
+
+def hitl_created_event(
+    task_id: str,
+    trace_id: str,
+    hitl_task_id: str,
+    title: str,
+    description: str,
+    risk_level: str,
+    fields: Optional[List[Dict[str, Any]]] = None,
+    actions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Emit hitl.created event when a HITL task is created.
+
+    Per PRD Section 7.2.
+    """
+    return {
+        "event": SSEEventType.HITL_CREATED.value,
+        "data": json.dumps({
+            "taskId": task_id,
+            "traceId": trace_id,
+            "payload": {
+                "hitlTaskId": hitl_task_id,
+                "title": title,
+                "description": description,
+                "riskLevel": risk_level,
+                "fields": fields or [],
+                "actions": actions or [],
+            }
+        }, ensure_ascii=False),
+    }
+
+
+def hitl_resolved_event(
+    task_id: str,
+    trace_id: str,
+    hitl_task_id: str,
+    action: str,
+    comment: str = "",
+) -> Dict[str, Any]:
+    """Emit hitl.resolved event when a HITL task is resolved.
+
+    Per PRD Section 7.2.
+    """
+    return {
+        "event": SSEEventType.HITL_RESOLVED.value,
+        "data": json.dumps({
+            "taskId": task_id,
+            "traceId": trace_id,
+            "payload": {
+                "hitlTaskId": hitl_task_id,
+                "action": action,
+                "comment": comment,
+            }
+        }, ensure_ascii=False),
+    }

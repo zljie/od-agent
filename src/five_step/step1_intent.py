@@ -1,11 +1,17 @@
-"""Step 1: Intent Recognition for the 5-step pipeline."""
+"""Step 1: Intent Recognition for the 5-step pipeline.
 
+This module provides the unified intent recognition for the 5-step pipeline.
+It uses CoreIntentPipeline as the primary engine.
+"""
+
+import warnings
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from .models import IntentRecognitionResult, SemanticContract, SemanticContractSlot
 
 if TYPE_CHECKING:
     from ..intent_recognition.models import CompositeIntentResult
 
+# Mark the old pipeline as deprecated
 _COMPOSITE_AVAILABLE = True
 
 
@@ -32,10 +38,26 @@ class Step1Recognizer:
         self._pending_hitl_task: Optional[Dict[str, Any]] = None
 
     def _get_composite_pipeline(self, task_id: str = "", pending_hitl_task: Optional[Dict[str, Any]] = None):
+        """Get the composite intent pipeline.
+
+        .. deprecated::
+            This method uses the deprecated 7-layer pipeline.
+            Migration: Update to use CoreIntentPipeline from intent_recognition.core_pipeline
+
+        The 7-layer pipeline provides:
+        - Layer 4 DeepIntentReasoner for complex queries
+        - HITL clarification with slot fill protocol
+        - Per-layer audit logging
+
+        For simple queries, prefer CoreIntentPipeline.
+        """
         if not _COMPOSITE_AVAILABLE:
             return None
         if self._composite_pipeline is None:
-            from ..intent_recognition import CompositeIntentPipeline
+            # Import from deprecated pipeline - will be migrated to CoreIntentPipeline
+            with warnings.catch_warnings():
+                warnings.simplefilter("always", DeprecationWarning)
+                from ..intent_recognition import CompositeIntentPipeline
             self._composite_pipeline = CompositeIntentPipeline(
                 use_deep_reasoning=True,
                 use_hitl=True,

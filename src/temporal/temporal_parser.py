@@ -227,6 +227,13 @@ class TemporalParser:
                     this_monday = self.today - timedelta(days=self.today.weekday())
                     target_monday = this_monday + timedelta(weeks=offset_weeks)
                     return target_monday + timedelta(days=dow_idx)
+
+        # Handle bare weekdays (周五, 周一) — resolve to this week's weekday
+        for dow_name, dow_idx in self.WEEKDAY_MAP.items():
+            if label == dow_name:
+                this_monday = self.today - timedelta(days=self.today.weekday())
+                return this_monday + timedelta(days=dow_idx)
+
         return None
 
     def _build_timeline(self, anchor_dates: Dict[str, date]) -> List[str]:

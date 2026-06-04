@@ -170,10 +170,14 @@ class TimeRangeExtractor:
     def _resolve_qualified_weekday(self, label: str) -> TimeRange:
         """解析带星期的时间表达式"""
         prefix_map = {"上": -1, "本": 0, "下": 1}
-        weekday_map = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6}
+        # 支持单个字符(一、二、三...)和完整名称(周一、周二...)
+        weekday_map = {
+            "一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6,
+            "周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4, "周六": 5, "周日": 6,
+        }
         
         prefix = label[:1]  # 上、本、下
-        weekday_name = label[1:]  # 一、二、三...
+        weekday_name = label[1:]  # 一、二、三... 或 周一、周二...
         weekday_idx = weekday_map[weekday_name]
         weeks_offset = prefix_map[prefix]
         
