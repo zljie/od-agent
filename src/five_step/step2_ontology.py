@@ -27,6 +27,58 @@ gets overwritten by lower-confidence downstream steps.
 from typing import Dict, List, Optional, Any
 from .models import OntologyResolveResult, SemanticContract
 from ..procurement.ontology_loader import get_procurement_ontology, OntologyQuery
+from ..prompt_config import get_field
+
+
+_STEP2_ONTOLOGY_MATCHING_PROMPT_DEFAULT = """## 任务
+基于以下业务本体和用户输入，进行深度语义推理，找出最匹配的业务对象。
+
+## 用户输入
+{user_input}
+
+## Step1 意图识别结果
+- 意图: {intent_id} ({intent_label})
+- 对象术语: {object_term}
+- 操作类型: {operation_type}
+
+## 采购业务本体
+{ontology_context}
+
+## 推理过程
+请按以下步骤思考：
+
+1. **分析用户意图**: 用户说的"对象术语"是什么？采购计划/请购单/PR 这些都指向采购需求
+2. **理解业务语义**: 采购计划、请购单、PR 都是 purchase_requests 的不同叫法
+3. **检查本体覆盖**: 从本体中找到语义最接近的数据集
+4. **输出推理结果**:
+
+请按以下 JSON 格式输出（只输出 JSON，不要其他内容）：
+{{
+    "matched_name": "purchase_requests",  // 匹配的 dataset name
+    "reasoning": "用户说的'采购计划'在本体系中对应'采购需求'（purchase_requests），因为...",  // 推理过程
+    "confidence": 0.95,  // 置信度 0-1
+    "alternatives": [  // 备选方案
+        {{"name": "purchase_inquiries", "reason": "如果用户实际想询价..."}}
+    ]
+}}
+
+如果无法确定匹配，输出：
+{{
+    "matched_name": null,
+    "reasoning": "无法确定匹配...",
+    "confidence": 0.0,
+    "alternatives": []
+}}
+
+"""
+
+
+def _step2_ontology_matching_prompt() -> str:
+    return get_field(
+        "five_step",
+        "step2_ontology_matching_prompt",
+        _STEP2_ONTOLOGY_MATCHING_PROMPT_DEFAULT,
+    )
 
 
 class Step2OntologyResolver:
@@ -355,47 +407,14 @@ class Step2OntologyResolver:
             # Build context with ontology summary
             ontology_context = query.ontology.to_system_prompt_context()
             
-            prompt = f"""## 任务
-基于以下业务本体和用户输入，进行深度语义推理，找出最匹配的业务对象。
-
-## 用户输入
-{user_input}
-
-## Step1 意图识别结果
-- 意图: {intent_result.intent} ({intent_result.intent_label})
-- 对象术语: {intent_result.object_term}
-- 操作类型: {intent_result.operation_type}
-
-## 采购业务本体
-{ontology_context}
-
-## 推理过程
-请按以下步骤思考：
-
-1. **分析用户意图**: 用户说的"对象术语"是什么？采购计划/请购单/PR 这些都指向采购需求
-2. **理解业务语义**: 采购计划、请购单、PR 都是 purchase_requests 的不同叫法
-3. **检查本体覆盖**: 从本体中找到语义最接近的数据集
-4. **输出推理结果**: 
-
-请按以下 JSON 格式输出（只输出 JSON，不要其他内容）：
-{{
-    "matched_name": "purchase_requests",  // 匹配的 dataset name
-    "reasoning": "用户说的'采购计划'在本体系中对应'采购需求'（purchase_requests），因为...",  // 推理过程
-    "confidence": 0.95,  // 置信度 0-1
-    "alternatives": [  // 备选方案
-        {{"name": "purchase_inquiries", "reason": "如果用户实际想询价..."}}
-    ]
-}}
-
-如果无法确定匹配，输出：
-{{
-    "matched_name": null,
-    "reasoning": "无法确定匹配...",
-    "confidence": 0.0,
-    "alternatives": []
-}}
-
-"""
+            prompt = _step2_ontology_matching_prompt().format(
+                user_input=user_input,
+                intent_id=intent_result.intent,
+                intent_label=intent_result.intent_label,
+                object_term=intent_result.object_term,
+                operation_type=intent_result.operation_type,
+                ontology_context=ontology_context,
+            )
             model = get_default_model()
             response = model.generate(prompt, thinking_budget=800)
             

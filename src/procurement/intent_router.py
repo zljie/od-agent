@@ -11,6 +11,34 @@ from typing import Dict, List, Optional, Any
 
 from .intents import PROCUREMENT_INTENTS, Intent, get_intent_by_id
 from .connector import ProcurementConnector, get_procurement_connector, ConnectorResponse
+from ..prompt_config import get_field, get_slot_collection_prompts
+
+
+_INTENT_CLASSIFICATION_PROMPT_DEFAULT = """你是采购助手。请根据用户消息判断采购意图。
+
+## 可用意图
+{intent_list}
+
+## 用户消息
+"{message}"
+
+## 要求
+1. 仔细分析用户消息的语义，不要简单匹配关键词
+2. 如果消息模糊，选择最可能的意图
+3. 尝试从消息中提取关键参数（ID、编号、供应商名等）
+4. 如果不属于任何已知意图，返回 "unknown"
+
+请以JSON格式返回（不要有其他内容）：
+{{"intent_id": "...", "confidence": 0.0-1.0, "extracted_params": {{"pr_id": "...", "po_id": "...", ...}}, "reasoning": "..."}}
+"""
+
+
+def _intent_classification_prompt() -> str:
+    return get_field(
+        "procurement",
+        "intent_classification_prompt",
+        _INTENT_CLASSIFICATION_PROMPT_DEFAULT,
+    )
 
 
 @dataclass
@@ -71,23 +99,10 @@ class IntentRouter:
                 for i in self.intents
             ])
 
-            prompt = f"""你是采购助手。请根据用户消息判断采购意图。
-
-## 可用意图
-{intent_list}
-
-## 用户消息
-"{message}"
-
-## 要求
-1. 仔细分析用户消息的语义，不要简单匹配关键词
-2. 如果消息模糊，选择最可能的意图
-3. 尝试从消息中提取关键参数（ID、编号、供应商名等）
-4. 如果不属于任何已知意图，返回 "unknown"
-
-请以JSON格式返回（不要有其他内容）：
-{{"intent_id": "...", "confidence": 0.0-1.0, "extracted_params": {{"pr_id": "...", "po_id": "...", ...}}, "reasoning": "..."}}
-"""
+            prompt = _intent_classification_prompt().format(
+                intent_list=intent_list,
+                message=message,
+            )
             print(f"[IntentRouter] LLM调用开始 | input_len={len(message)} | thinking_budget=500")
             llm_start = _time.time()
             response = model.generate(prompt, thinking_budget=500)
@@ -328,7 +343,7 @@ class IntentRouter:
 
     def _generate_slot_prompt(self, intent: Intent, missing_slots: List[str]) -> str:
         """生成槽位收集提示"""
-        prompts = {
+        default_prompts = {
             'pr_id': '请提供采购需求编号（如：PR-20260528-001）',
             'pr_item': '请提供行项目号',
             'quotation_id': '请提供报价单号（如：QUO-001）',
@@ -337,6 +352,8 @@ class IntentRouter:
             'inquiry_id': '请提供询价单号（如：RFQ-20260528-001）',
             'decision': '请说明您的决定（通过/批准 或 驳回）',
         }
+
+        prompts = get_slot_collection_prompts(default_prompts)
 
         slot_prompts = [prompts.get(s, s) for s in missing_slots]
 

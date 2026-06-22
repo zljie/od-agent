@@ -18,7 +18,55 @@ from typing import Any, Dict, List, Optional
 
 from src.intent_topology import IntentPath
 
+from ..prompt_config import get_field
 from .models import ClarificationOption, HITLRequest
+
+
+_HITL_CLARIFICATION_PROMPT_DEFAULT = """你是企业业务助手的澄清问题生成器。
+
+给定已知信息和候选意图路径，生成一个自然的澄清问题，并提供多个具体选项供用户选择。
+
+## 已理解的信息
+{known_facts}
+
+## 需要澄清的问题点
+{unclear_points}
+
+## 候选意图路径
+{paths_text}
+
+## 深度推理候选（可选）
+{candidates_text}
+
+## 要求
+1. 生成一个清晰、自然的中文澄清问题。
+2. 生成2-5个具体选项，每个选项对应一个明确的意图路径。
+3. 每个选项的label应该简洁明确（如"查询采购需求"）。
+4. 每个选项的description应该解释这个选择的具体含义。
+5. 标记一个推荐的默认选项（recommended_default）。
+
+## 输出格式（仅返回JSON，不要包含其他内容）
+{{
+  "question": "您的澄清问题",
+  "options": [
+    {{
+      "option_id": "opt_1",
+      "label": "选项标签",
+      "description": "选项解释",
+      "intent_path_id": "对应的IntentPath.id"
+    }}
+  ],
+  "recommended_default": "opt_1"
+}}
+"""
+
+
+def _hitl_clarification_prompt() -> str:
+    return get_field(
+        "intent_recognition",
+        "hitl_clarification_prompt",
+        _HITL_CLARIFICATION_PROMPT_DEFAULT,
+    )
 
 
 class HITLClarificationEngine:
@@ -114,43 +162,13 @@ class HITLClarificationEngine:
         candidates_text: str,
     ) -> str:
         """Build the HITL clarification prompt per Section 18.3."""
-        return f"""你是企业业务助手的澄清问题生成器。
-
-给定已知信息和候选意图路径，生成一个自然的澄清问题，并提供多个具体选项供用户选择。
-
-## 已理解的信息
-{chr(10).join(f"- {f}" for f in known_facts)}
-
-## 需要澄清的问题点
-{chr(10).join(f"- {p}" for p in unclear_points)}
-
-## 候选意图路径
-{paths_text}
-
-## 深度推理候选（可选）
-{candidates_text}
-
-## 要求
-1. 生成一个清晰、自然的中文澄清问题。
-2. 生成2-5个具体选项，每个选项对应一个明确的意图路径。
-3. 每个选项的label应该简洁明确（如"查询采购需求"）。
-4. 每个选项的description应该解释这个选择的具体含义。
-5. 标记一个推荐的默认选项（recommended_default）。
-
-## 输出格式（仅返回JSON，不要包含其他内容）
-{{
-  "question": "您的澄清问题",
-  "options": [
-    {{
-      "option_id": "opt_1",
-      "label": "选项标签",
-      "description": "选项解释",
-      "intent_path_id": "对应的IntentPath.id"
-    }}
-  ],
-  "recommended_default": "opt_1"
-}}
-"""
+        template = _hitl_clarification_prompt()
+        return template.format(
+            known_facts="\n".join(f"- {f}" for f in known_facts),
+            unclear_points="\n".join(f"- {p}" for p in unclear_points),
+            paths_text=paths_text,
+            candidates_text=candidates_text,
+        )
 
     def _parse_llm_response(
         self,

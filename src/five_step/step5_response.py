@@ -3,6 +3,42 @@
 import json
 from typing import List, Dict, Any, Optional
 from .models import ResponseResult, SuggestedAction
+from ..prompt_config import get_field
+
+
+_STEP5_RESPONSE_GENERATION_PROMPT_DEFAULT = """你是采购助手。请根据以下执行结果，用简洁的中文为用户生成一段回复。
+
+## 用户意图
+{intent_label}
+
+## 查询条件
+{query_conditions}
+
+## 执行结果
+{executions_json}
+
+## 要求
+1. 用 1-2 句话总结查询结果，让用户清楚了解情况
+2. 如果查询到数据，给出具体数字和关键信息
+3. 如果执行失败，说明原因
+4. 自然、友好、口语化，像在与用户对话
+5. 不要列出技术细节
+
+示例：
+- "已为您查询到 12 条未执行的采购需求，其中研发部有 5 条，采购部有 7 条。"
+- "采购订单 PO-20260528-001 当前状态正常，审批已通过，等待供应商发货。"
+- "抱歉，查询失败：未找到匹配的采购需求记录。"
+
+直接输出回复内容，不要有其他内容。
+"""
+
+
+def _step5_response_generation_prompt() -> str:
+    return get_field(
+        "five_step",
+        "step5_response_generation_prompt",
+        _STEP5_RESPONSE_GENERATION_PROMPT_DEFAULT,
+    )
 
 
 class Step5ResponseGenerator:
@@ -126,31 +162,11 @@ class Step5ResponseGenerator:
                 for cond in plan_result.query_conditions[:3]:
                     query_conditions.append(f"{cond.label or cond.field}: {cond.operator} {cond.value}")
 
-            prompt = f"""你是采购助手。请根据以下执行结果，用简洁的中文为用户生成一段回复。
-
-## 用户意图
-{intent_label or "采购查询"}
-
-## 查询条件
-{chr(10).join(query_conditions) if query_conditions else "无特定条件"}
-
-## 执行结果
-{json.dumps(executions_info, ensure_ascii=False, indent=2)}
-
-## 要求
-1. 用 1-2 句话总结查询结果，让用户清楚了解情况
-2. 如果查询到数据，给出具体数字和关键信息
-3. 如果执行失败，说明原因
-4. 自然、友好、口语化，像在与用户对话
-5. 不要列出技术细节
-
-示例：
-- "已为您查询到 12 条未执行的采购需求，其中研发部有 5 条，采购部有 7 条。"
-- "采购订单 PO-20260528-001 当前状态正常，审批已通过，等待供应商发货。"
-- "抱歉，查询失败：未找到匹配的采购需求记录。"
-
-直接输出回复内容，不要有其他内容。
-"""
+            prompt = _step5_response_generation_prompt().format(
+                intent_label=intent_label or "采购查询",
+                query_conditions="\n".join(query_conditions) if query_conditions else "无特定条件",
+                executions_json=json.dumps(executions_info, ensure_ascii=False, indent=2),
+            )
             # Try sync call, handle async context gracefully
             try:
                 response = model.generate(prompt, thinking_budget=300)

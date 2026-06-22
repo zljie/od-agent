@@ -26,6 +26,43 @@ Step 1 gets overwritten by planner's guesswork.
 
 from typing import List, Dict, Any, Optional
 from .models import TaskPlanResult, PlannedActionItem, QueryConditionItem, SemanticContract
+from ..prompt_config import get_field
+
+
+_STEP3_PLAN_DESCRIPTION_PROMPT_DEFAULT = """将以下执行计划转化为用户可理解的自然语言描述。
+
+## 用户意图
+{intent_label}
+
+## 业务对象
+{object_label}
+{semantic_context}
+
+## 将执行的操作
+{action_list}
+
+## 查询条件
+{condition_list}
+
+## 要求
+1. 用简洁的中文描述整个计划，约 2-3 句话
+2. 说明 agent 会查询什么数据
+3. 可以给用户一个预期（如"约 2-3 秒"）
+4. 不要使用技术术语，用业务语言
+5. 让用户知道接下来会发生什么
+
+示例输出：
+"我将帮您查询所有未执行的采购需求，并按申请部门和物料汇总展示。整个查询预计需要 2-3 秒。"
+
+"""
+
+
+def _step3_plan_description_prompt() -> str:
+    return get_field(
+        "five_step",
+        "step3_planner_description_prompt",
+        _STEP3_PLAN_DESCRIPTION_PROMPT_DEFAULT,
+    )
 
 
 class Step3TaskPlanner:
@@ -193,32 +230,13 @@ class Step3TaskPlanner:
                     for alt in semantic_contract.alternatives[:3]:
                         semantic_context += f"- {alt.get('intent_id')} (confidence: {alt.get('confidence', 0):.2%})\n"
 
-            prompt = f"""将以下执行计划转化为用户可理解的自然语言描述。
-
-## 用户意图
-{intent_result.intent_label}
-
-## 业务对象
-{ontology_result.object_label}
-{semantic_context}
-
-## 将执行的操作
-{action_list}
-
-## 查询条件
-{condition_list}
-
-## 要求
-1. 用简洁的中文描述整个计划，约 2-3 句话
-2. 说明 agent 会查询什么数据
-3. 可以给用户一个预期（如"约 2-3 秒"）
-4. 不要使用技术术语，用业务语言
-5. 让用户知道接下来会发生什么
-
-示例输出：
-"我将帮您查询所有未执行的采购需求，并按申请部门和物料汇总展示。整个查询预计需要 2-3 秒。"
-
-"""
+            prompt = _step3_plan_description_prompt().format(
+                intent_label=intent_result.intent_label,
+                object_label=ontology_result.object_label,
+                semantic_context=semantic_context,
+                action_list=action_list,
+                condition_list=condition_list,
+            )
             model = get_default_model()
 
             # Try sync call, handle async context gracefully

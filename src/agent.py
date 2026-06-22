@@ -99,7 +99,10 @@ class CustomerServiceAgent:
         if system_prompt:
             base_prompt = system_prompt
         else:
-            base_prompt = config.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
+            # Prefer prompt_config.system_prompt (new layout) with top-level
+            # fallback for backward compatibility.
+            from .prompt_config import get_main_system_prompt
+            base_prompt = get_main_system_prompt(config.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
         
         # Inject ontology as persistent knowledge
         self.system_prompt = self._build_system_prompt_with_ontology(base_prompt, ontology_context)

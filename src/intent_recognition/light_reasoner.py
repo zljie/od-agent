@@ -20,6 +20,7 @@ import re
 import time as _time
 from typing import Any, Dict, List, Optional
 
+from ..prompt_config import get_field
 from .models import LLMLightResult, PreprocessingResult
 
 
@@ -31,7 +32,7 @@ def _log(level: str, msg: str) -> None:
 # Prompt templates (from Section 18.1 of BeBISO design)
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """你是企业业务意图识别器（Light Intent Reasoner）。
+_SYSTEM_PROMPT_DEFAULT = """你是企业业务意图识别器（Light Intent Reasoner）。
 给定用户输入和上下文信息，你的任务是从结构化本体中匹配最可能的意图模板、对象和操作。
 
 ## 核心能力
@@ -47,7 +48,7 @@ _SYSTEM_PROMPT = """你是企业业务意图识别器（Light Intent Reasoner）
 - 置信度评分范围 [0.0, 1.0]
 """
 
-_INTENT_TEMPLATES_DESCRIPTION = """
+_INTENT_TEMPLATES_DESCRIPTION_DEFAULT = """
 ## 可用意图模板
 - create_object: 创建对象（create 操作，用于新增采购需求、新增订单等）
 - query_object: 查询对象（read, query 操作）
@@ -61,7 +62,7 @@ _INTENT_TEMPLATES_DESCRIPTION = """
 - analyze_risk: 风险分析（query 操作）
 """
 
-_ONTOLOGY_OBJECTS_DESCRIPTION = """
+_ONTOLOGY_OBJECTS_DESCRIPTION_DEFAULT = """
 ## 本体对象（常见采购对象）
 - purchase_requests: 采购需求
 - inquiries: 询价单
@@ -73,7 +74,7 @@ _ONTOLOGY_OBJECTS_DESCRIPTION = """
 - approval_flows: 审批流
 """
 
-_ONTOLOGY_ACTIONS_DESCRIPTION = """
+_ONTOLOGY_ACTIONS_DESCRIPTION_DEFAULT = """
 ## 本体动作
 - list: 列出/查询列表
 - get: 获取单个详情
@@ -87,7 +88,7 @@ _ONTOLOGY_ACTIONS_DESCRIPTION = """
 - generate: 生成
 """
 
-_FILTER_FIELDS_DESCRIPTION = """
+_FILTER_FIELDS_DESCRIPTION_DEFAULT = """
 ## 常用过滤字段（用于从用户输入中提取的值）
 - material: 物料名称或编码（如 "A4打印纸", "联想笔记本电脑"）
 - quantity: 采购数量（如 "10箱", "100个", "50台"）
@@ -103,6 +104,34 @@ _FILTER_FIELDS_DESCRIPTION = """
 - flow_status: 流程状态
 - date_range: 日期范围
 """
+
+
+def _system_prompt() -> str:
+    return get_field("intent_recognition", "light_system_prompt", _SYSTEM_PROMPT_DEFAULT)
+
+
+def _intent_templates_description() -> str:
+    return get_field(
+        "intent_recognition",
+        "light_templates_description",
+        _INTENT_TEMPLATES_DESCRIPTION_DEFAULT,
+    )
+
+
+def _ontology_objects_description() -> str:
+    return get_field(
+        "intent_recognition",
+        "light_objects_description",
+        _ONTOLOGY_OBJECTS_DESCRIPTION_DEFAULT,
+    )
+
+
+def _ontology_actions_description() -> str:
+    return get_field(
+        "intent_recognition",
+        "light_actions_description",
+        _ONTOLOGY_ACTIONS_DESCRIPTION_DEFAULT,
+    )
 
 
 def _build_user_prompt(
@@ -346,7 +375,14 @@ class LightIntentReasoner:
         # Build prompt
         user_prompt = _build_user_prompt(text, preprocessing, effective_summary)
 
-        full_prompt = f"{_SYSTEM_PROMPT}\n{_INTENT_TEMPLATES_DESCRIPTION}\n{_ONTOLOGY_OBJECTS_DESCRIPTION}\n{_ONTOLOGY_ACTIONS_DESCRIPTION}\n{_FILTER_FIELDS_DESCRIPTION}\n\n{user_prompt}"
+        full_prompt = (
+            f"{_system_prompt()}\n"
+            f"{_intent_templates_description()}\n"
+            f"{_ontology_objects_description()}\n"
+            f"{_ontology_actions_description()}\n"
+            f"{_FILTER_FIELDS_DESCRIPTION_DEFAULT}\n\n"
+            f"{user_prompt}"
+        )
 
         # Call LLM
         model = self._get_model()

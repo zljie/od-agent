@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from src.procurement.slot_extractors import DepartmentExtractor
 
+from ..prompt_config import get_field
 from .models import (
     LLMLightResult,
     OntologyMatchResult,
@@ -28,6 +29,73 @@ from .models import (
     ResolutionStatus,
     ResolvedValue,
 )
+
+
+_DYNAMIC_RESOLVER_SINGLE_PROMPT_DEFAULT = """你是企业采购系统的主数据查询助手。
+
+给定一个动态术语，查询其对应的标准主数据记录。
+
+## 待查询术语
+- 术语: "{dynamic_term}"
+- 类型: {term_type}（{hint}）
+
+## 要求
+1. 尝试从已知的主数据中匹配最可能的记录。
+2. 如果有多个可能的匹配，记录为"候选"。
+3. 如果没有匹配，返回空列表。
+4. 每个匹配的记录需要包含：value（标准值）、display（显示名称）、confidence（置信度0-1）。
+
+## 输出格式（仅返回JSON，不要包含其他内容）
+{{
+  "status": "resolved|ambiguous|unresolved",
+  "candidates": [
+    {{
+      "value": "标准值",
+      "display": "显示名称",
+      "confidence": 0.0-1.0
+    }}
+  ],
+  "selected": {{
+    "value": "标准值",
+    "display": "显示名称"
+  }}
+}}
+"""
+
+_DYNAMIC_RESOLVER_BATCH_PROMPT_DEFAULT = """你是企业采购系统的主数据查询助手。
+
+批量查询多个动态术语对应的标准主数据记录。
+
+## 待查询列表
+{task_lines}
+
+## 要求
+1. 为每个术语独立查询主数据。
+2. 返回JSON数组，每个元素对应一个术语的查询结果。
+3. 每个元素包含：status、candidates、selected字段（同单个查询格式）。
+
+## 输出格式（仅返回JSON数组，不要包含其他内容）
+[
+  {{"status": "resolved|ambiguous|unresolved", "candidates": [...], "selected": {{}}}},
+  ...
+]
+"""
+
+
+def _dynamic_resolver_single_prompt() -> str:
+    return get_field(
+        "intent_recognition",
+        "dynamic_resolver_single_prompt",
+        _DYNAMIC_RESOLVER_SINGLE_PROMPT_DEFAULT,
+    )
+
+
+def _dynamic_resolver_batch_prompt() -> str:
+    return get_field(
+        "intent_recognition",
+        "dynamic_resolver_batch_prompt",
+        _DYNAMIC_RESOLVER_BATCH_PROMPT_DEFAULT,
+    )
 
 
 class DynamicSlotResolver:
@@ -185,36 +253,8 @@ class DynamicSlotResolver:
             "organization": "部门或组织单元名称",
         }
         hint = type_hints.get(term_type, "业务对象")
-        return f"""你是企业采购系统的主数据查询助手。
-
-给定一个动态术语，查询其对应的标准主数据记录。
-
-## 待查询术语
-- 术语: "{dynamic_term}"
-- 类型: {term_type}（{hint}）
-
-## 要求
-1. 尝试从已知的主数据中匹配最可能的记录。
-2. 如果有多个可能的匹配，记录为"候选"。
-3. 如果没有匹配，返回空列表。
-4. 每个匹配的记录需要包含：value（标准值）、display（显示名称）、confidence（置信度0-1）。
-
-## 输出格式（仅返回JSON，不要包含其他内容）
-{{
-  "status": "resolved|ambiguous|unresolved",
-  "candidates": [
-    {{
-      "value": "标准值",
-      "display": "显示名称",
-      "confidence": 0.0-1.0
-    }}
-  ],
-  "selected": {{
-    "value": "标准值",
-    "display": "显示名称"
-  }}
-}}
-"""
+        template = _dynamic_resolver_single_prompt()
+        return template.format(dynamic_term=dynamic_term, term_type=term_type, hint=hint)
 
     def _build_batch_prompt(
         self, tasks: List[tuple[int, Dict[str, Any]]]
@@ -224,24 +264,8 @@ class DynamicSlotResolver:
             lines.append(
                 f"[{i+1}] 术语: \"{task['term']}\", 类型: {task['term_type']}"
             )
-        return f"""你是企业采购系统的主数据查询助手。
-
-批量查询多个动态术语对应的标准主数据记录。
-
-## 待查询列表
-{chr(10).join(lines)}
-
-## 要求
-1. 为每个术语独立查询主数据。
-2. 返回JSON数组，每个元素对应一个术语的查询结果。
-3. 每个元素包含：status、candidates、selected字段（同单个查询格式）。
-
-## 输出格式（仅返回JSON数组，不要包含其他内容）
-[
-  {{"status": "resolved|ambiguous|unresolved", "candidates": [...], "selected": {{}}}},
-  ...
-]
-"""
+        template = _dynamic_resolver_batch_prompt()
+        return template.format(task_lines="\n".join(lines))
 
     def _parse_llm_response(
         self, dynamic_term: str, term_type: str, response: str

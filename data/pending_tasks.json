@@ -1,84 +1,34 @@
 {
-  "TASK-20260604-07A523": {
-    "task_id": "TASK-20260604-07A523",
-    "action": "create_purchase_request",
-    "object": "",
+  "TASK-20260610-A74828": {
+    "task_id": "TASK-20260610-A74828",
+    "action": "submit_approval",
+    "object": "purchase_requests",
     "missing_slots": [
-      "物料编码",
-      "交货日期",
-      "工厂",
-      "公司",
-      "采购类型"
+      "document_id",
+      "document_type"
     ],
     "filled_slots": {},
     "status": "waiting_slots",
-    "created_at": "2026-06-04T17:16:53.774097",
-    "updated_at": "2026-06-04T17:16:53.774097",
-    "expires_at": "2026-06-04T17:46:53.774102",
-    "confidence": 0.9,
+    "created_at": "2026-06-10T22:24:48.709529",
+    "updated_at": "2026-06-10T22:24:48.709529",
+    "expires_at": "2026-06-10T22:54:48.709533",
+    "confidence": 0.905,
     "metadata": {
-      "intent_label": "创建采购需求",
+      "intent_label": "submit_approval",
       "slot_form_fields": [
         {
-          "id": "物料编码",
-          "label": "物料编码",
+          "id": "document_id",
+          "label": "单据编号",
           "type": "text",
           "required": true,
-          "placeholder": "请输入物料编码"
+          "placeholder": "请输入单据编号"
         },
         {
-          "id": "交货日期",
-          "label": "交货日期",
+          "id": "document_type",
+          "label": "单据类型",
           "type": "text",
           "required": true,
-          "placeholder": "请输入交货日期"
-        },
-        {
-          "id": "工厂",
-          "label": "工厂",
-          "type": "text",
-          "required": true,
-          "placeholder": "请输入工厂"
-        },
-        {
-          "id": "公司",
-          "label": "公司",
-          "type": "text",
-          "required": true,
-          "placeholder": "请输入公司"
-        },
-        {
-          "id": "采购类型",
-          "label": "采购类型",
-          "type": "text",
-          "required": true,
-          "placeholder": "请输入采购类型"
-        }
-      ]
-    }
-  },
-  "TASK-20260604-8D5C63": {
-    "task_id": "TASK-20260604-8D5C63",
-    "action": "unknown",
-    "object": "",
-    "missing_slots": [
-      "用户未提供采购相关的业务对象或动作，输入内容与采购域无关"
-    ],
-    "filled_slots": {},
-    "status": "waiting_slots",
-    "created_at": "2026-06-04T17:17:42.799221",
-    "updated_at": "2026-06-04T17:17:42.799221",
-    "expires_at": "2026-06-04T17:47:42.799224",
-    "confidence": 0.02,
-    "metadata": {
-      "intent_label": "非采购领域行程计算问题",
-      "slot_form_fields": [
-        {
-          "id": "用户未提供采购相关的业务对象或动作，输入内容与采购域无关",
-          "label": "用户未提供采购相关的业务对象或动作，输入内容与采购域无关",
-          "type": "text",
-          "required": true,
-          "placeholder": "请输入用户未提供采购相关的业务对象或动作，输入内容与采购域无关"
+          "placeholder": "请选择单据类型"
         }
       ]
     }

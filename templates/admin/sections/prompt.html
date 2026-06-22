@@ -1,131 +1,583 @@
-<!-- Prompt 配置 -->
+<!-- 系统提示词配置 -->
 <div class="config-card" x-data="promptSection()">
-    <div class="config-card-header">
-        <h3>Prompt 配置</h3>
-        <!-- 开发模式指示器 -->
-        <div x-show="isDevMode" style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="badge badge-draft">研发模式</span>
-            <span style="font-size: 0.7rem; color: #9ca3af;">保存即生效</span>
+
+    <!-- Sub-tab navigation -->
+    <div class="prompt-subtabs" role="tablist" aria-label="步骤提示词切换">
+        <button type="button"
+                class="prompt-subtab"
+                :class="{'active': activeTab === 'main'}"
+                @click="activeTab = 'main'"
+                role="tab"
+                :aria-selected="activeTab === 'main'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            主系统提示词
+        </button>
+        <button type="button"
+                class="prompt-subtab"
+                :class="{'active': activeTab === 'intent'}"
+                @click="activeTab = 'intent'"
+                role="tab"
+                :aria-selected="activeTab === 'intent'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+            意图识别
+            <span class="prompt-subtab-count" x-text="tabs.intent.fields.length"></span>
+        </button>
+        <button type="button"
+                class="prompt-subtab"
+                :class="{'active': activeTab === 'five_step'}"
+                @click="activeTab = 'five_step'"
+                role="tab"
+                :aria-selected="activeTab === 'five_step'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            五步流程
+            <span class="prompt-subtab-count" x-text="tabs.five_step.fields.length"></span>
+        </button>
+        <button type="button"
+                class="prompt-subtab"
+                :class="{'active': activeTab === 'procurement'}"
+                @click="activeTab = 'procurement'"
+                role="tab"
+                :aria-selected="activeTab === 'procurement'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            采购场景
+            <span class="prompt-subtab-count" x-text="tabs.procurement.fields.length"></span>
+        </button>
+        <div class="prompt-subtab-hint" x-show="activeTab !== 'main'">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            留空将使用代码内置的默认提示词
         </div>
     </div>
 
-    <div class="config-section">
-        <div class="config-section-title">System Prompt</div>
-        <div>
-            <label for="systemPrompt">System Prompt</label>
-            <textarea id="systemPrompt"
-                      x-model="form.system_prompt"
-                      placeholder="Enter system prompt..."
-                      rows="10"></textarea>
-            <p class="field-hint">定义 Agent 的核心角色、行为准则和回复风格</p>
+    <!-- Main tab: full editor + preview (existing UI) -->
+    <div class="prompt-tab-panel" x-show="activeTab === 'main'" x-transition.opacity>
+    <div class="prompt-editor-container">
+
+        <!-- Left Pane: Editor -->
+        <div class="prompt-editor-pane">
+            <div class="prompt-editor-header">
+                <div class="prompt-editor-title-group">
+                    <h3 class="prompt-editor-title">系统提示词</h3>
+                    <span class="prompt-editor-subtitle">定义 Agent 的角色、行为准则和回复风格</span>
+                </div>
+                <button class="btn btn-sm btn-outline" @click="insertVariable('&#123;&#123;user_name&#125;&#125;')" title="插入变量">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    插入变量
+                </button>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="prompt-toolbar">
+                <div class="prompt-toolbar-group">
+                    <button class="prompt-toolbar-btn" @click="formatText('bold')" title="粗体 (Ctrl+B)">
+                        <strong>B</strong>
+                    </button>
+                    <button class="prompt-toolbar-btn" @click="formatText('italic')" title="斜体 (Ctrl+I)">
+                        <em>I</em>
+                    </button>
+                    <button class="prompt-toolbar-btn" @click="formatText('strikethrough')" title="删除线">
+                        <s>S</s>
+                    </button>
+                </div>
+                <div class="prompt-toolbar-sep"></div>
+                <div class="prompt-toolbar-group">
+                    <button class="prompt-toolbar-btn" @click="insertHeading()" title="标题">
+                        H
+                    </button>
+                    <button class="prompt-toolbar-btn" @click="formatText('quote')" title="引用">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3z"/></svg>
+                    </button>
+                    <button class="prompt-toolbar-btn" @click="formatText('code')" title="行内代码">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    </button>
+                    <button class="prompt-toolbar-btn" @click="formatText('codeblock')" title="代码块">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9l-3 3 3 3"/><path d="M15 9l3 3-3 3"/></svg>
+                    </button>
+                </div>
+                <div class="prompt-toolbar-sep"></div>
+                <div class="prompt-toolbar-group">
+                    <button class="prompt-toolbar-btn" @click="formatText('ul')" title="无序列表">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                    </button>
+                    <button class="prompt-toolbar-btn" @click="formatText('ol')" title="有序列表">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg>
+                    </button>
+                </div>
+                <div class="prompt-toolbar-sep"></div>
+                <div class="prompt-toolbar-group">
+                    <button class="prompt-toolbar-btn" @click="insertLink()" title="插入链接">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    </button>
+                    <button class="prompt-toolbar-btn" @click="insertHR()" title="插入分隔线">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+                    </button>
+                </div>
+                <div class="prompt-toolbar-sep"></div>
+                <!-- Variables dropdown -->
+                <div class="prompt-toolbar-group" style="position: relative;">
+                    <button class="prompt-toolbar-btn prompt-toolbar-btn-text" @click="showVars = !showVars" :class="{'active': showVars}">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                        变量
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="prompt-vars-dropdown" x-show="showVars" @click.away="showVars = false" x-transition>
+                        <div class="prompt-vars-dropdown-title">可用变量</div>
+                        <template x-for="v in variables" :key="v.name">
+                            <button class="prompt-var-item" @click="insertVariable(v.value); showVars = false;">
+                                <code x-text="v.value"></code>
+                                <span x-text="v.label"></span>
+                            </button>
+                        </template>
+                        <div class="prompt-vars-dropdown-divider"></div>
+                        <div class="prompt-vars-dropdown-hint">点击变量名插入到光标位置</div>
+                    </div>
+                </div>
+                <!-- History button -->
+                <button class="prompt-toolbar-btn prompt-toolbar-btn-text" @click="showHistory = !showHistory; loadHistory();" :class="{'active': showHistory}">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    历史
+                </button>
+                <div class="prompt-toolbar-right">
+                    <label class="switch-label" style="font-size: 0.75rem; white-space: nowrap;">
+                        <input type="checkbox" x-model="showLineNumbers">
+                        <span>行号</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Editor Area -->
+            <div class="prompt-editor-area" :class="{'with-line-numbers': showLineNumbers}">
+                <div class="prompt-line-numbers" x-show="showLineNumbers" x-ref="lineNumbers">
+                    <template x-for="n in lineCount" :key="n">
+                        <div class="prompt-line-num" x-text="n"></div>
+                    </template>
+                </div>
+                <textarea
+                    id="systemPromptEditor"
+                    class="prompt-editor-textarea"
+                    x-model="form.system_prompt"
+                    @keydown="handleKeydown($event)"
+                    @scroll="syncScroll($event)"
+                    placeholder="在此编写系统提示词...
+
+例如：
+# 角色
+你是一个专业的采购助手...
+
+## 核心原则
+1. 始终基于本体知识回答
+2. ..."
+                    rows="20"
+                    spellcheck="false"></textarea>
+            </div>
         </div>
 
-        <div style="margin-top: 0.75rem;">
-            <button type="button" class="btn btn-outline btn-sm" @click="showPreview = !showPreview">
-                <span x-text="showPreview ? '收起预览' : '预览 Prompt'"></span>
+        <!-- Right Pane: Preview -->
+        <div class="prompt-editor-pane prompt-preview-pane">
+            <div class="prompt-editor-header">
+                <div class="prompt-editor-title-group">
+                    <h3 class="prompt-editor-title">实时预览</h3>
+                    <span class="prompt-editor-subtitle">渲染效果（Markdown）</span>
+                </div>
+                <button class="btn btn-sm btn-ghost" @click="refreshPreview()" title="刷新预览">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                </button>
+            </div>
+            <div class="prompt-preview-area" x-ref="previewArea">
+                <div class="prompt-preview-content" x-html="renderedPreview"></div>
+                <div class="prompt-preview-empty" x-show="!form.system_prompt.trim()">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: #d1d5db; margin-bottom: 0.5rem;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <p>开始输入提示词，预览将实时显示</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Sidebar -->
+    <div class="prompt-history-sidebar" x-show="showHistory" x-transition:enter="history-enter" x-transition:leave="history-leave" @click.away="showHistory = false">
+        <div class="prompt-history-header">
+            <h4>版本历史</h4>
+            <button class="btn btn-sm btn-ghost" @click="showHistory = false">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
         </div>
-
-        <div x-show="showPreview" style="margin-top: 0.75rem;">
-            <div class="schema-area" x-text="form.system_prompt || '（无内容）'"></div>
+        <div class="prompt-history-list">
+            <template x-if="historyLoading">
+                <div class="prompt-history-empty">加载中...</div>
+            </template>
+            <template x-if="!historyLoading && historyVersions.length === 0">
+                <div class="prompt-history-empty">
+                    <p>暂无历史版本</p>
+                    <small>保存后会自动记录</small>
+                </div>
+            </template>
+            <template x-for="v in historyVersions" :key="v.version">
+                <div class="prompt-history-item" :class="{'active': selectedVersion === v.version}" @click="restoreVersion(v)">
+                    <div class="prompt-history-item-header">
+                        <span class="prompt-history-ver">v<span x-text="v.version"></span></span>
+                        <span class="prompt-history-time" x-text="v.time"></span>
+                    </div>
+                    <div class="prompt-history-summary" x-text="v.summary || '无描述'"></div>
+                    <div class="prompt-history-meta">
+                        <span x-text="v.chars + ' 字符'"></span>
+                        <span>·</span>
+                        <span x-text="v.author || 'admin'"></span>
+                    </div>
+                    <button class="btn btn-xs btn-outline" x-show="selectedVersion !== v.version" @click.stop="restoreVersion(v)">恢复</button>
+                    <span class="badge badge-active" x-show="selectedVersion === v.version">当前</span>
+                </div>
+            </template>
         </div>
     </div>
 
-    <hr class="section-divider">
+    <!-- Bottom Stats Bar -->
+    <div class="prompt-stats-bar">
+        <div class="prompt-stat-item">
+            <span class="prompt-stat-label">字符</span>
+            <span class="prompt-stat-value" x-text="charCount.toLocaleString()">0</span>
+        </div>
+        <div class="prompt-stat-sep"></div>
+        <div class="prompt-stat-item">
+            <span class="prompt-stat-label">预估 Token</span>
+            <span class="prompt-stat-value" x-text="estimatedTokens.toLocaleString()">0</span>
+        </div>
+        <div class="prompt-stat-sep"></div>
+        <div class="prompt-stat-item">
+            <span class="prompt-stat-label">行数</span>
+            <span class="prompt-stat-value" x-text="lineCount">0</span>
+        </div>
+        <div class="prompt-stat-sep"></div>
+        <div class="prompt-stat-item">
+            <span class="prompt-stat-label">字数</span>
+            <span class="prompt-stat-value" x-text="wordCount.toLocaleString()">0</span>
+        </div>
+        <div class="prompt-stat-sep"></div>
+        <div class="prompt-stat-item" style="margin-left: auto;">
+            <span class="prompt-stat-label">版本</span>
+            <span class="prompt-stat-value">v1.0</span>
+        </div>
+        <div class="prompt-stat-sep"></div>
+        <div class="prompt-stat-item">
+            <span class="prompt-stat-label">最后保存</span>
+            <span class="prompt-stat-value" x-text="lastSaved || '—'">—</span>
+        </div>
+        <!-- 开发模式指示器 -->
+        <div class="prompt-dev-badge" x-show="isDevMode">
+            <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="#38ef7d"/></svg>
+            研发模式 · 保存即生效
+        </div>
+    </div>
 
-    <div class="config-section">
-        <div class="form-grid-2">
-            <div>
-                <label for="roleDefinition">Role Definition</label>
-                <textarea id="roleDefinition" x-model="form.role_definition" rows="3"
-                          placeholder="定义 Agent 的具体角色定位..."></textarea>
-            </div>
-            <div>
-                <label for="fallbackReply">Fallback Reply</label>
-                <textarea id="fallbackReply" x-model="form.fallback_reply" rows="3"
-                          placeholder="无法回答时的兜底回复..."></textarea>
+    </div><!-- /main tab panel -->
+
+    <!-- Sub-tabs: per-step prompt editors -->
+    <template x-for="tabKey in ['intent', 'five_step']" :key="tabKey">
+        <div class="prompt-tab-panel" x-show="activeTab === tabKey" x-transition.opacity>
+            <div class="prompt-step-editor">
+                <div class="prompt-step-editor-header">
+                    <h3 x-text="tabs[tabKey].label"></h3>
+                    <p class="prompt-step-editor-desc" x-text="tabs[tabKey].description"></p>
+                </div>
+                <div class="prompt-step-fields">
+                    <template x-for="field in tabs[tabKey].fields" :key="field.path">
+                        <div class="prompt-field-row" x-data="makeFieldEditor(tabKey, field.path, field.label)">
+                            <div class="prompt-field-row-header">
+                                <label class="prompt-field-label">
+                                    <span x-text="label"></span>
+                                    <span class="prompt-field-path" x-text="field.path"></span>
+                                </label>
+                                <div class="prompt-field-actions">
+                                    <button class="btn btn-xs btn-ghost" @click="resetToDefault()" title="清空，恢复使用代码内置的默认提示词">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                                        清空
+                                    </button>
+                                    <button class="btn btn-xs btn-ghost" @click="copyValue()" title="复制">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                        复制
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="prompt-field-body" :class="{'with-preview': showPreview}">
+                                <textarea
+                                    class="prompt-field-textarea"
+                                    x-model="value"
+                                    placeholder="留空将使用代码内置的默认提示词"
+                                    spellcheck="false"></textarea>
+                                <div class="prompt-field-preview" x-show="showPreview" x-html="rendered"></div>
+                            </div>
+                            <div class="prompt-field-stats">
+                                <span x-text="charCount + ' 字符'"></span>
+                                <span class="prompt-stat-sep"></span>
+                                <span x-text="lineCount + ' 行'"></span>
+                                <label class="switch-label" style="margin-left: auto; font-size: 0.7rem;">
+                                    <input type="checkbox" x-model="showPreview">
+                                    <span>预览</span>
+                                </label>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                <div class="prompt-step-save-bar">
+                    <button class="btn btn-primary" @click="saveSubTab(tabKey)" :disabled="savingSubTab">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        <span x-show="!savingSubTab">保存配置</span>
+                        <span x-show="savingSubTab">保存中…</span>
+                    </button>
+                    <span class="prompt-step-save-hint">保存后立即热更新 Agent，下一次对话生效</span>
+                    <span class="prompt-step-save-result" x-show="subTabMessage" x-text="subTabMessage" :class="subTabResultType"></span>
+                </div>
             </div>
         </div>
+    </template>
 
-        <div class="form-grid-2" style="margin-top: 1rem;">
-            <div>
-                <label for="responseStyle">Reply Style</label>
-                <select id="responseStyle" x-model="form.response_style">
-                    <option value="professional">Professional 专业</option>
-                    <option value="friendly">Friendly 友好</option>
-                    <option value="concise">Concise 简洁</option>
-                    <option value="detailed">Detailed 详细</option>
-                    <option value="empathetic">Empathetic 同理心</option>
-                </select>
+    <!-- Procurement tab: classification prompt + slot prompts in one panel -->
+    <div class="prompt-tab-panel" x-show="activeTab === 'procurement'" x-transition.opacity>
+        <div class="prompt-step-editor">
+            <div class="prompt-step-editor-header">
+                <h3 x-text="tabs.procurement.label"></h3>
+                <p class="prompt-step-editor-desc" x-text="tabs.procurement.description"></p>
             </div>
-            <div>
-                <label for="outputFormat">Output Format</label>
-                <select id="outputFormat" x-model="form.output_format">
-                    <option value="markdown">Markdown</option>
-                    <option value="plain">Plain Text</option>
-                    <option value="json">JSON</option>
-                    <option value="html">HTML</option>
-                </select>
+            <div class="prompt-step-fields">
+                <template x-for="field in tabs.procurement.fields" :key="field.path">
+                    <div class="prompt-field-row" x-data="makeFieldEditor('procurement', field.path, field.label)">
+                        <div class="prompt-field-row-header">
+                            <label class="prompt-field-label">
+                                <span x-text="label"></span>
+                                <span class="prompt-field-path" x-text="field.path"></span>
+                            </label>
+                            <div class="prompt-field-actions">
+                                <button class="btn btn-xs btn-ghost" @click="resetToDefault()" title="清空">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                                    清空
+                                </button>
+                                <button class="btn btn-xs btn-ghost" @click="copyValue()" title="复制">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                    复制
+                                </button>
+                            </div>
+                        </div>
+                        <div class="prompt-field-body" :class="{'with-preview': showPreview}">
+                            <textarea
+                                class="prompt-field-textarea"
+                                x-model="value"
+                                placeholder="留空将使用代码内置的默认提示词"
+                                spellcheck="false"></textarea>
+                            <div class="prompt-field-preview" x-show="showPreview" x-html="rendered"></div>
+                        </div>
+                        <div class="prompt-field-stats">
+                            <span x-text="charCount + ' 字符'"></span>
+                            <span class="prompt-stat-sep"></span>
+                            <span x-text="lineCount + ' 行'"></span>
+                            <label class="switch-label" style="margin-left: auto; font-size: 0.7rem;">
+                                <input type="checkbox" x-model="showPreview">
+                                <span>预览</span>
+                            </label>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <div class="prompt-step-editor-header" style="margin-top: 1.5rem;">
+                <h3>采购场景 · 槽位收集提示词</h3>
+                <p class="prompt-step-editor-desc">每行一个：键 = 值（覆盖同 ID 的默认提示词）。例如 <code>pr_id = 请输入采购需求编号</code></p>
+            </div>
+            <div class="prompt-slot-rows" x-data="slotRowsComponent()">
+                <template x-for="(row, idx) in rows" :key="idx">
+                    <div class="prompt-slot-row">
+                        <input class="prompt-slot-key" type="text" x-model="row.key" placeholder="槽位 id (如 pr_id)" @change="sync()" />
+                        <span class="prompt-slot-eq">=</span>
+                        <input class="prompt-slot-val" type="text" x-model="row.value" placeholder="提示词文本（留空则清除覆盖）" @change="sync()" />
+                        <button class="btn btn-xs btn-ghost" @click="remove(idx)" title="移除">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                </template>
+                <button class="btn btn-sm btn-outline" @click="add()" style="margin-top: 0.5rem;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    添加槽位
+                </button>
+            </div>
+
+            <div class="prompt-step-save-bar">
+                <button class="btn btn-primary" @click="saveSubTab('procurement')" :disabled="savingSubTab">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    <span x-show="!savingSubTab">保存配置</span>
+                    <span x-show="savingSubTab">保存中…</span>
+                </button>
+                <span class="prompt-step-save-hint">保存后立即热更新 Agent，下一次对话生效</span>
+                <span class="prompt-step-save-result" x-show="subTabMessage" x-text="subTabMessage" :class="subTabResultType"></span>
             </div>
         </div>
     </div>
 
-    <hr class="section-divider">
-
-    <div class="config-section">
-        <div class="config-section-title">Safety &amp; Compliance</div>
-        <div>
-            <label for="safetyInstructions">Safety Instructions</label>
-            <textarea id="safetyInstructions" x-model="form.safety_instructions"
-                      rows="4"
-                      placeholder="安全与合规要求，例如：禁止回复涉及政治敏感话题..."></textarea>
-            <p class="field-hint">定义 Agent 必须遵守的安全边界和合规要求</p>
-        </div>
-    </div>
-
-    <!-- 保存结果提示 -->
-    <div x-show="saveMessage" style="margin-top: 1rem;" :class="'toast toast-' + saveResultType">
-        <span x-text="saveMessage"></span>
-    </div>
 </div>
 
 <script>
 // Make promptSection globally available
 function promptSection() {
     return {
-        showPreview: false,
-        isDevMode: true, // 研发模式下默认热更新
+        // State
+        showPreview: true,
+        showVars: false,
+        showHistory: false,
+        showLineNumbers: true,
+        isDevMode: true,
         saveMessage: null,
         saveResultType: 'success',
+        lastSaved: null,
+        historyLoading: false,
+        selectedVersion: '1.0',
+        historyVersions: [],
+
+        // Active sub-tab
+        activeTab: 'main',
+        savingSubTab: false,
+        subTabMessage: null,
+        subTabResultType: 'success',
+        slotDirty: false,
+
+        // Form (main + groups)
         form: {
             system_prompt: '',
-            role_definition: '',
-            fallback_reply: '',
-            response_style: 'professional',
-            output_format: 'markdown',
-            safety_instructions: '',
+            intent_recognition: {
+                light_system_prompt: '',
+                light_templates_description: '',
+                light_objects_description: '',
+                light_actions_description: '',
+                deep_reasoning_prompt: '',
+                hitl_clarification_prompt: '',
+                dynamic_resolver_single_prompt: '',
+                dynamic_resolver_batch_prompt: '',
+            },
+            five_step: {
+                step2_ontology_matching_prompt: '',
+                step3_planner_description_prompt: '',
+                step5_response_generation_prompt: '',
+            },
+            procurement: {
+                intent_classification_prompt: '',
+                slot_collection_prompts: {},
+            },
         },
+
+        // Tab metadata (drives the per-step editor list)
+        tabs: {
+            intent: {
+                label: '意图识别 · 各步骤提示词',
+                description: '覆盖 7 层意图识别管道里 LLM 调用的全部提示词。',
+                fields: [
+                    { path: 'light_system_prompt', label: '轻量层系统提示词' },
+                    { path: 'light_templates_description', label: '意图模板说明' },
+                    { path: 'light_objects_description', label: '本体对象说明' },
+                    { path: 'light_actions_description', label: '本体行为说明' },
+                    { path: 'deep_reasoning_prompt', label: '深度推理提示词' },
+                    { path: 'hitl_clarification_prompt', label: 'HITL 澄清问题提示词' },
+                    { path: 'dynamic_resolver_single_prompt', label: '单项动态解析提示词' },
+                    { path: 'dynamic_resolver_batch_prompt', label: '批量动态解析提示词' },
+                ],
+            },
+            five_step: {
+                label: '五步流程 · 各步骤提示词',
+                description: '覆盖五步透明执行管道里 Step 2/3/5 使用的 LLM 提示词。',
+                fields: [
+                    { path: 'step2_ontology_matching_prompt', label: 'Step 2 本体匹配提示词' },
+                    { path: 'step3_planner_description_prompt', label: 'Step 3 计划描述提示词' },
+                    { path: 'step5_response_generation_prompt', label: 'Step 5 回复生成提示词' },
+                ],
+            },
+            procurement: {
+                label: '采购场景 · 提示词',
+                description: '采购意图路由器的 LLM 分类提示词；下方另有槽位收集提示词的 key/value 编辑器。',
+                fields: [
+                    { path: 'intent_classification_prompt', label: '意图分类提示词' },
+                ],
+            },
+        },
+
+        // Available variables
+        variables: [
+            { name: 'user_name',     value: '&#123;&#123;user_name&#125;&#125;',    label: '用户名' },
+            { name: 'current_date',  value: '&#123;&#123;current_date&#125;&#125;', label: '当前日期' },
+            { name: 'session_id',    value: '&#123;&#123;session_id&#125;&#125;',   label: '会话ID' },
+            { name: 'org_name',      value: '&#123;&#123;org_name&#125;&#125;',     label: '组织名称' },
+            { name: 'user_role',     value: '&#123;&#123;user_role&#125;&#125;',    label: '用户角色' },
+            { name: 'language',      value: '&#123;&#123;language&#125;&#125;',     label: '语言' },
+            { name: 'timezone',      value: '&#123;&#123;timezone&#125;&#125;',     label: '时区' },
+        ],
+
+        // Computed (main tab)
+        get charCount() {
+            return this.form.system_prompt.length;
+        },
+        get lineCount() {
+            if (!this.form.system_prompt) return 1;
+            return this.form.system_prompt.split('\n').length;
+        },
+        get estimatedTokens() {
+            return Math.ceil(this.charCount / 4);
+        },
+        get wordCount() {
+            if (!this.form.system_prompt) return 0;
+            return this.form.system_prompt.replace(/\s+/g, ' ').trim().split(' ').length;
+        },
+
+        // Debounced preview
+        _previewTimeout: null,
+        get renderedPreview() {
+            const text = this.form.system_prompt;
+            if (!text.trim()) return '';
+            return this.parseMarkdown(text);
+        },
+
         init() {
             this.loadConfig();
-            // Listen for save events from bottom action bar
+            // Listen for save events from bottom action bar (legacy main-tab)
             const panel = document.getElementById('main-panel');
             if (panel) {
                 panel.addEventListener('section-save', () => {
-                    this.saveConfig();
+                    if (this.activeTab === 'main') {
+                        this.saveConfig();
+                    } else {
+                        this.saveSubTab(this.activeTab);
+                    }
                 });
             }
+            // Listen for scroll sync on the main textarea
+            const textarea = document.getElementById('systemPromptEditor');
+            if (textarea) {
+                textarea.addEventListener('scroll', () => this.syncScrollFromTextarea());
+            }
         },
+
         async loadConfig() {
             try {
                 const resp = await fetch('/config');
                 const data = await resp.json();
                 this.form.system_prompt = data.system_prompt || '';
-                // 始终启用热更新直到正式发布
                 this.isDevMode = true;
+                const pc = data.prompt_config || {};
+                // Top-level system_prompt inside prompt_config takes precedence
+                if (pc.system_prompt && !this.form.system_prompt) {
+                    this.form.system_prompt = pc.system_prompt;
+                }
+                // Hydrate nested groups
+                for (const g of ['intent_recognition', 'five_step', 'procurement']) {
+                    const grp = pc[g] || {};
+                    const target = this.form[g];
+                    if (target && typeof target === 'object') {
+                        for (const k of Object.keys(target)) {
+                            if (k === 'slot_collection_prompts') {
+                                target[k] = grp[k] || {};
+                            } else if (typeof target[k] === 'string') {
+                                target[k] = grp[k] || '';
+                            }
+                        }
+                    }
+                }
             } catch(e) {
                 console.error('Failed to load config:', e);
             }
         },
+
         async saveConfig() {
             this.saveMessage = null;
             try {
@@ -135,28 +587,479 @@ function promptSection() {
                     body: JSON.stringify(this.form),
                 });
                 const data = await resp.json();
-                
+
+                this.lastSaved = new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
                 this.saveMessage = data.message || '保存成功';
                 this.saveResultType = data.status === 'success' ? 'success' : 'error';
-                
+
                 if (data.hot_reload) {
                     this.showToastToParent('Agent 已热更新，新配置立即生效', 'success');
                 } else {
                     this.showToastToParent('配置已保存', 'success');
                 }
-                
+
+                // Save to local version history
+                this.saveToHistory();
+
                 setTimeout(() => {
                     this.saveMessage = null;
                 }, 3000);
             } catch(e) {
                 this.saveMessage = '保存失败: ' + e.message;
                 this.saveResultType = 'error';
+                this.showToastToParent('保存失败: ' + e.message, 'error');
             }
         },
+
+        async saveSubTab(tabKey) {
+            this.savingSubTab = true;
+            this.subTabMessage = null;
+            try {
+                // Compose payload: only the active group, plus any slot overrides
+                const payload = {};
+                const group = JSON.parse(JSON.stringify(this.form[tabKey] || {}));
+                // Drop empty strings so default fallbacks are used
+                for (const k of Object.keys(group)) {
+                    if (typeof group[k] === 'string' && !group[k].trim()) {
+                        delete group[k];
+                    }
+                }
+                payload[tabKey] = group;
+
+                const resp = await fetch('/admin/agents/1/prompt', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                const data = await resp.json();
+                this.subTabMessage = data.message || '保存成功';
+                this.subTabResultType = data.status === 'success' ? 'success' : 'error';
+                this.showToastToParent(
+                    data.hot_reload
+                        ? `${this.tabs[tabKey].label.split(' ')[0]} 已热更新`
+                        : `${this.tabs[tabKey].label.split(' ')[0]} 已保存`,
+                    'success'
+                );
+                setTimeout(() => { this.subTabMessage = null; }, 3000);
+            } catch(e) {
+                this.subTabMessage = '保存失败: ' + e.message;
+                this.subTabResultType = 'error';
+                this.showToastToParent('保存失败: ' + e.message, 'error');
+            } finally {
+                this.savingSubTab = false;
+            }
+        },
+
         showToastToParent(message, type) {
             const ws = document.querySelector('[x-data]');
             if (ws && ws.__x && ws.__x.$data && typeof ws.__x.$data.showToast === 'function') {
                 ws.__x.$data.showToast(message, type);
+            }
+        },
+
+        // Format text
+        formatText(type) {
+            const ta = document.getElementById('systemPromptEditor');
+            if (!ta) return;
+            const start = ta.selectionStart;
+            const end = ta.selectionEnd;
+            const selected = ta.value.substring(start, end);
+            const before = ta.value.substring(0, start);
+            const after = ta.value.substring(end);
+            let insertion = '';
+            let cursorOffset = 0;
+
+            switch (type) {
+                case 'bold':
+                    insertion = `**${selected || '粗体文本'}**`;
+                    cursorOffset = selected ? 0 : -2;
+                    break;
+                case 'italic':
+                    insertion = `*${selected || '斜体文本'}*`;
+                    cursorOffset = selected ? 0 : -1;
+                    break;
+                case 'strikethrough':
+                    insertion = `~~${selected || '删除文本'}~~`;
+                    cursorOffset = selected ? 0 : -2;
+                    break;
+                case 'code':
+                    insertion = `\`${selected || '代码'}\``;
+                    cursorOffset = selected ? 0 : -1;
+                    break;
+                case 'codeblock':
+                    insertion = `\n\`\`\`\n${selected || '代码块'}\n\`\`\`\n`;
+                    cursorOffset = selected ? 0 : -4;
+                    break;
+                case 'quote':
+                    insertion = `\n> ${selected || '引用文本'}\n`;
+                    cursorOffset = selected ? 0 : -1;
+                    break;
+                case 'ul':
+                    insertion = `\n- ${selected || '列表项'}\n`;
+                    cursorOffset = selected ? 0 : -1;
+                    break;
+                case 'ol':
+                    insertion = `\n1. ${selected || '列表项'}\n`;
+                    cursorOffset = selected ? 0 : -1;
+                    break;
+            }
+
+            ta.value = before + insertion + after;
+            this.form.system_prompt = ta.value;
+            ta.focus();
+            const newPos = start + insertion.length + cursorOffset;
+            ta.setSelectionRange(newPos, newPos);
+        },
+
+        insertHeading() {
+            const ta = document.getElementById('systemPromptEditor');
+            if (!ta) return;
+            const start = ta.selectionStart;
+            const before = ta.value.substring(0, start);
+            const after = ta.value.substring(start);
+            const lineStart = before.lastIndexOf('\n') + 1;
+            const currentLine = before.substring(lineStart);
+            const match = currentLine.match(/^(#{1,6})\s/);
+            let newLine;
+            if (match) {
+                const level = match[1].length;
+                const newLevel = level >= 6 ? 0 : level + 1;
+                if (newLevel === 0) {
+                    newLine = currentLine.replace(/^#{1,6}\s/, '');
+                } else {
+                    newLine = '#'.repeat(newLevel) + ' ' + currentLine.replace(/^#{1,6}\s/, '');
+                }
+            } else {
+                newLine = '## ' + currentLine;
+            }
+            ta.value = before.substring(0, lineStart) + newLine + after;
+            this.form.system_prompt = ta.value;
+            ta.focus();
+        },
+
+        insertLink() {
+            const ta = document.getElementById('systemPromptEditor');
+            if (!ta) return;
+            const start = ta.selectionStart;
+            const end = ta.selectionEnd;
+            const selected = ta.value.substring(start, end) || '链接文本';
+            const insertion = `[${selected}](url)`;
+            const before = ta.value.substring(0, start);
+            const after = ta.value.substring(end);
+            ta.value = before + insertion + after;
+            this.form.system_prompt = ta.value;
+            ta.focus();
+            const newPos = start + insertion.length;
+            ta.setSelectionRange(newPos, newPos);
+        },
+
+        insertHR() {
+            const ta = document.getElementById('systemPromptEditor');
+            if (!ta) return;
+            const start = ta.selectionStart;
+            const before = ta.value.substring(0, start);
+            const after = ta.value.substring(start);
+            const insertion = '\n---\n';
+            ta.value = before + insertion + after;
+            this.form.system_prompt = ta.value;
+            ta.focus();
+            const newPos = start + insertion.length;
+            ta.setSelectionRange(newPos, newPos);
+        },
+
+        insertVariable(value) {
+            const ta = document.getElementById('systemPromptEditor');
+            if (!ta) return;
+            const start = ta.selectionStart;
+            const end = ta.selectionEnd;
+            const before = ta.value.substring(0, start);
+            const after = ta.value.substring(end);
+            ta.value = before + value + after;
+            this.form.system_prompt = ta.value;
+            ta.focus();
+            const newPos = start + value.length;
+            ta.setSelectionRange(newPos, newPos);
+        },
+
+        handleKeydown(e) {
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+                const key = e.key.toLowerCase();
+                if (key === 'b') { e.preventDefault(); this.formatText('bold'); }
+                else if (key === 'i') { e.preventDefault(); this.formatText('italic'); }
+                else if (key === 'k') { e.preventDefault(); this.insertLink(); }
+                else if (key === 's') { e.preventDefault(); this.saveConfig(); }
+            }
+        },
+
+        syncScroll(e) {
+            const preview = this.$refs.previewArea;
+            const lineNumbers = this.$refs.lineNumbers;
+            if (preview) {
+                const ratio = e.target.scrollTop / Math.max(e.target.scrollHeight - e.target.clientHeight, 1);
+                preview.scrollTop = ratio * (preview.scrollHeight - preview.clientHeight);
+            }
+            if (lineNumbers) {
+                lineNumbers.scrollTop = e.target.scrollTop;
+            }
+        },
+
+        syncScrollFromTextarea() {
+            const textarea = document.getElementById('systemPromptEditor');
+            if (textarea) this.syncScroll({ target: textarea });
+        },
+
+        refreshPreview() {
+            // Trigger reactivity by reassigning the field
+            const v = this.form.system_prompt;
+            this.form.system_prompt = '';
+            this.$nextTick(() => { this.form.system_prompt = v; });
+        },
+
+        saveToHistory() {
+            try {
+                const key = 'prompt-config-history';
+                const history = JSON.parse(localStorage.getItem(key) || '[]');
+                history.unshift({
+                    version: '1.0',
+                    time: new Date().toISOString(),
+                    summary: `保存 ${this.form.system_prompt.length} 字符`,
+                    chars: this.form.system_prompt.length,
+                    author: 'admin',
+                    snapshot: this.form.system_prompt,
+                });
+                localStorage.setItem(key, JSON.stringify(history.slice(0, 30)));
+            } catch(e) {
+                console.warn('Failed to save history:', e);
+            }
+        },
+
+        loadHistory() {
+            this.historyLoading = true;
+            try {
+                const key = 'prompt-config-history';
+                const history = JSON.parse(localStorage.getItem(key) || '[]');
+                this.historyVersions = history.map(h => ({
+                    version: h.version || '1.0',
+                    time: h.time ? new Date(h.time).toLocaleString('zh-CN') : '',
+                    summary: h.summary || '',
+                    chars: h.chars || 0,
+                    author: h.author || 'admin',
+                    snapshot: h.snapshot,
+                }));
+            } catch(e) {
+                this.historyVersions = [];
+            }
+            this.historyLoading = false;
+        },
+
+        restoreVersion(v) {
+            if (v && typeof v.snapshot === 'string') {
+                this.form.system_prompt = v.snapshot;
+                this.selectedVersion = v.version;
+            }
+        },
+
+        // Very small markdown renderer (subset) used for preview
+        parseMarkdown(text) {
+            if (!text) return '';
+            const escape = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const lines = text.split('\n');
+            let html = '';
+            let inCodeBlock = false;
+            let inList = null; // 'ul' | 'ol' | null
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (line.trim().startsWith('```')) {
+                    if (inCodeBlock) {
+                        html += '</code></pre>';
+                        inCodeBlock = false;
+                    } else {
+                        html += '<pre><code>';
+                        inCodeBlock = true;
+                    }
+                    continue;
+                }
+                if (inCodeBlock) {
+                    html += escape(line) + '\n';
+                    continue;
+                }
+                let processed = escape(line);
+                // Headings
+                const h = line.match(/^(#{1,6})\s+(.*)$/);
+                if (h) {
+                    if (inList) { html += `</${inList}>`; inList = null; }
+                    html += `<h${h[1].length}>${this._inline(h[2])}</h${h[1].length}>`;
+                    continue;
+                }
+                // HR
+                if (/^---+\s*$/.test(line)) {
+                    if (inList) { html += `</${inList}>`; inList = null; }
+                    html += '<hr/>';
+                    continue;
+                }
+                // Blockquote
+                if (line.startsWith('> ')) {
+                    if (inList) { html += `</${inList}>`; inList = null; }
+                    html += `<blockquote>${this._inline(line.slice(2))}</blockquote>`;
+                    continue;
+                }
+                // Lists
+                const ul = line.match(/^[-*]\s+(.*)$/);
+                const ol = line.match(/^\d+\.\s+(.*)$/);
+                if (ul) {
+                    if (inList !== 'ul') {
+                        if (inList) html += `</${inList}>`;
+                        html += '<ul>';
+                        inList = 'ul';
+                    }
+                    html += `<li>${this._inline(ul[1])}</li>`;
+                    continue;
+                }
+                if (ol) {
+                    if (inList !== 'ol') {
+                        if (inList) html += `</${inList}>`;
+                        html += '<ol>';
+                        inList = 'ol';
+                    }
+                    html += `<li>${this._inline(ol[1])}</li>`;
+                    continue;
+                }
+                if (inList) { html += `</${inList}>`; inList = null; }
+                if (line.trim() === '') {
+                    html += '';
+                } else {
+                    html += `<p>${this._inline(processed)}</p>`;
+                }
+            }
+            if (inList) html += `</${inList}>`;
+            if (inCodeBlock) html += '</code></pre>';
+            return html;
+        },
+
+        _inline(s) {
+            return s
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        },
+
+        // Slot row helpers (procurement tab)
+        buildSlotRows() {
+            const obj = (this.form && this.form.procurement && this.form.procurement.slot_collection_prompts) || {};
+            const rows = Object.keys(obj).map(k => ({ key: k, value: obj[k] }));
+            if (rows.length === 0) rows.push({ key: '', value: '' });
+            return rows;
+        },
+
+        syncSlotRows(rows) {
+            const obj = {};
+            for (const r of rows) {
+                if (r.key && r.value) obj[r.key] = r.value;
+            }
+            this.form.procurement.slot_collection_prompts = obj;
+        },
+    };
+}
+
+// Inline component for the procurement slot prompt editor
+function slotRowsComponent() {
+    return {
+        rows: [],
+        init() {
+            const sec = document.querySelector('[x-data*="promptSection"]');
+            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
+            if (stack && typeof stack.buildSlotRows === 'function') {
+                this.rows = stack.buildSlotRows();
+            } else {
+                this.rows = [{ key: '', value: '' }];
+            }
+            this.$watch('rows', () => this.sync(), { deep: true });
+        },
+        add() {
+            this.rows.push({ key: '', value: '' });
+        },
+        remove(idx) {
+            this.rows.splice(idx, 1);
+        },
+        sync() {
+            const sec = document.querySelector('[x-data*="promptSection"]');
+            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
+            if (stack && typeof stack.syncSlotRows === 'function') {
+                stack.syncSlotRows(this.rows);
+            }
+        },
+    };
+}
+
+// Per-field editor component for sub-tabs
+// value is a getter so it always reads the live parent form (loadConfig is async)
+// $watch ensures any parent-side change triggers Alpine reactivity even if the
+// getter itself isn't tracked through the full object chain.
+function makeFieldEditor(tabKey, path, label) {
+    return {
+        label,
+        tabKey,
+        path,
+        _localValue: '',
+        showPreview: false,
+
+        // Always read from the live parent form so async loadConfig is always visible
+        get value() {
+            const sec = document.querySelector('[x-data*="promptSection"]');
+            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
+            return (stack && stack.form && stack.form[tabKey] && stack.form[tabKey][path]) || '';
+        },
+        set value(v) {
+            this._localValue = v;
+            const sec = document.querySelector('[x-data*="promptSection"]');
+            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
+            if (stack && stack.form && stack.form[tabKey]) {
+                stack.form[tabKey][path] = v;
+            }
+        },
+
+        get charCount() { return this.value.length; },
+        get lineCount() { return this.value ? this.value.split('\n').length : 1; },
+        get rendered() {
+            const sec = document.querySelector('[x-data*="promptSection"]');
+            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
+            if (stack && typeof stack.parseMarkdown === 'function') {
+                return stack.parseMarkdown(this.value || '');
+            }
+            return '';
+        },
+
+        init() {
+            // Grab the initial value from parent (handles the case where
+            // loadConfig has already completed by the time this runs).
+            this._localValue = this.value;
+        },
+
+        // x-model handles writes through the setter; no explicit onChange needed.
+        onChange() {},
+
+        resetToDefault() {
+            this._localValue = '';
+            const sec = document.querySelector('[x-data*="promptSection"]');
+            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
+            if (stack && stack.form && stack.form[tabKey]) {
+                stack.form[tabKey][path] = '';
+            }
+        },
+
+        copyValue() {
+            if (!this.value) return;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(this.value).catch(() => {});
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = this.value;
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
             }
         },
     };

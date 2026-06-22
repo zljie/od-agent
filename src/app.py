@@ -431,6 +431,7 @@ def create_app() -> FastAPI:
                 "think",
                 "think_done",
                 "confirm_request",
+                "slot_fill_request",
                 "error",
                 "done"
             ],
@@ -480,6 +481,9 @@ def create_app() -> FastAPI:
         catalog = mc.to_catalog_dict()
         catalog["agent_name"] = config.get("agent_name", "OD_Assistant")
         catalog["system_prompt"] = config.get("system_prompt", "")
+        # Expose the full prompt_config (with nested groups) so the admin UI
+        # can populate per-step editors in a single round-trip.
+        catalog["prompt_config"] = config.get("prompt_config", {})
         return catalog
 
     @app.put("/config")
@@ -951,14 +955,51 @@ def create_app() -> FastAPI:
 
     @app.post("/admin/agents/{agent_id}/prompt")
     async def save_prompt(request: Request, agent_id: str):
-        """Save prompt configuration and hot-reload the agent in development mode."""
+        """Save prompt configuration and hot-reload the agent in development mode.
+
+        Accepts a flat payload (``{"system_prompt": "..."}``) for backwards
+        compatibility as well as nested groups:
+
+        - ``intent_recognition``: ``{"light_system_prompt": "...", ...}``
+        - ``five_step``: ``{"step2_ontology_matching_prompt": "...", ...}``
+        - ``procurement``: ``{"intent_classification_prompt": "...", "slot_collection_prompts": {...}}``
+
+        When nested groups are provided they are deep-merged into the
+        existing ``prompt_config`` so partial saves don't wipe siblings.
+        """
         body = await request.json()
         current_config = load_agent_config()
-        current_config.setdefault("prompt_config", {}).update(body)
+        pc = current_config.setdefault("prompt_config", {})
+
+        # Top-level system_prompt (legacy + main editor)
         if "system_prompt" in body:
+            pc["system_prompt"] = body["system_prompt"]
             current_config["system_prompt"] = body["system_prompt"]
+
+        # Deep-merge known groups so partial saves keep other fields
+        for group_key in ("intent_recognition", "five_step", "procurement"):
+            group_val = body.get(group_key)
+            if not isinstance(group_val, dict):
+                continue
+            target = pc.setdefault(group_key, {})
+            for field_key, field_val in group_val.items():
+                if field_key == "slot_collection_prompts":
+                    # Merge slot prompts by id (override only what's provided)
+                    existing = target.setdefault("slot_collection_prompts", {})
+                    if isinstance(field_val, dict):
+                        existing.update(field_val)
+                else:
+                    target[field_key] = field_val
+
         save_agent_config(current_config)
-        
+
+        # Drop the in-memory cache so subsequent reads pick up new overrides
+        try:
+            from .prompt_config import invalidate_cache
+            invalidate_cache()
+        except Exception:
+            pass
+
         # Hot-reload agent in development mode (not published)
         reload_result = {"status": "success"}
         if current_config.get("status") != "published":
@@ -982,7 +1023,7 @@ def create_app() -> FastAPI:
                 "hot_reload": False,
                 "message": "Prompt 配置已保存（生产模式，请发布后生效）",
             }
-        
+
         return reload_result
 
     @app.post("/admin/agents/{agent_id}/save-draft")

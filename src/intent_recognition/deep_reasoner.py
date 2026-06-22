@@ -22,6 +22,7 @@ import re
 import time as _time
 from typing import Any, Dict, List, Optional
 
+from ..prompt_config import get_field
 from .models import (
     DeepReasoningResult,
     LLMLightResult,
@@ -32,6 +33,57 @@ from .models import (
 
 def _log(level: str, msg: str) -> None:
     print(f"[DeepIntentReasoner][{level}] {msg}")
+
+
+_DEEP_REASONING_PROMPT_DEFAULT = """你是企业业务意图深度推理器。
+
+给定用户输入和前置推理层的结果，请进行深度语义分析，推断用户真实意图，并给出置信度评分。
+
+## 用户原始输入
+{raw_input}
+
+## Layer-0 预处理结果
+{preprocessing_text}
+
+## Layer-1 轻量化 LLM 推理结果
+{llm_light_text}
+
+## Layer-2 本体拓扑匹配结果
+{ontology_text}
+
+## 对话上下文
+{dialog_text}
+
+## 完整本体上下文（供参考）
+以下是企业采购全量本体定义，请结合此上下文进行深度推理：
+{full_ontology_context}
+
+## 推理要求
+1. 综合分析以上所有信息，推断用户最可能的意图（最多返回3个候选，按置信度从高到低排序）。
+2. 识别当前还缺失的关键信息（missing_info）。
+3. 给出推荐决策：execute（可直接执行）、hitl（需要人工确认）、retry（需要重试）。
+4. 给出一个0-1之间的深度置信度评分C（C_deep_score）。
+
+## 输出格式（仅返回JSON，不要包含其他内容）
+{{
+  "ranked_candidates": [
+    {{
+      "intent_id": "...",
+      "intent_name": "...",
+      "confidence": 0.0-1.0,
+      "params": {{}},
+      "reason": "..."
+    }}
+  ],
+  "missing_info": ["..."],
+  "recommended_decision": "execute|hitl|retry",
+  "C_deep_score": 0.0-1.0
+}}
+"""
+
+
+def _deep_reasoning_prompt() -> str:
+    return get_field("intent_recognition", "deep_reasoning_prompt", _DEEP_REASONING_PROMPT_DEFAULT)
 
 
 class DeepIntentReasoner:
@@ -148,51 +200,15 @@ class DeepIntentReasoner:
         ontology_text = self._format_ontology_match(ontology_match)
         dialog_text = self._format_dialog_context(dialog_context)
 
-        return f"""你是企业业务意图深度推理器。
-
-给定用户输入和前置推理层的结果，请进行深度语义分析，推断用户真实意图，并给出置信度评分。
-
-## 用户原始输入
-{raw_input}
-
-## Layer-0 预处理结果
-{preprocessing_text}
-
-## Layer-1 轻量化 LLM 推理结果
-{llm_light_text}
-
-## Layer-2 本体拓扑匹配结果
-{ontology_text}
-
-## 对话上下文
-{dialog_text}
-
-## 完整本体上下文（供参考）
-以下是企业采购全量本体定义，请结合此上下文进行深度推理：
-{full_ontology_context}
-
-## 推理要求
-1. 综合分析以上所有信息，推断用户最可能的意图（最多返回3个候选，按置信度从高到低排序）。
-2. 识别当前还缺失的关键信息（missing_info）。
-3. 给出推荐决策：execute（可直接执行）、hitl（需要人工确认）、retry（需要重试）。
-4. 给出一个0-1之间的深度置信度评分C（C_deep_score）。
-
-## 输出格式（仅返回JSON，不要包含其他内容）
-{{
-  "ranked_candidates": [
-    {{
-      "intent_id": "...",
-      "intent_name": "...",
-      "confidence": 0.0-1.0,
-      "params": {{}},
-      "reason": "..."
-    }}
-  ],
-  "missing_info": ["..."],
-  "recommended_decision": "execute|hitl|retry",
-  "C_deep_score": 0.0-1.0
-}}
-"""
+        template = _deep_reasoning_prompt()
+        return template.format(
+            raw_input=raw_input,
+            preprocessing_text=preprocessing_text,
+            llm_light_text=llm_light_text,
+            ontology_text=ontology_text,
+            dialog_text=dialog_text,
+            full_ontology_context=full_ontology_context,
+        )
 
     def _format_preprocessing(self, r: PreprocessingResult) -> str:
         parts = [
