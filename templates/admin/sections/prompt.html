@@ -14,13 +14,13 @@
         </button>
         <button type="button"
                 class="prompt-subtab"
-                :class="{'active': activeTab === 'intent'}"
-                @click="activeTab = 'intent'"
+                :class="{'active': activeTab === 'intent_recognition'}"
+                @click="activeTab = 'intent_recognition'"
                 role="tab"
-                :aria-selected="activeTab === 'intent'">
+                :aria-selected="activeTab === 'intent_recognition'">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
             意图识别
-            <span class="prompt-subtab-count" x-text="tabs.intent.fields.length"></span>
+            <span class="prompt-subtab-count" x-text="tabs.intent_recognition.fields.length"></span>
         </button>
         <button type="button"
                 class="prompt-subtab"
@@ -269,8 +269,8 @@
 
     </div><!-- /main tab panel -->
 
-    <!-- Sub-tabs: per-step prompt editors -->
-    <template x-for="tabKey in ['intent', 'five_step']" :key="tabKey">
+    <!-- Sub-tabs: per-step prompt editors (intent_recognition + five_step + procurement) -->
+    <template x-for="tabKey in ['intent_recognition', 'five_step', 'procurement']" :key="tabKey">
         <div class="prompt-tab-panel" x-show="activeTab === tabKey" x-transition.opacity>
             <div class="prompt-step-editor">
                 <div class="prompt-step-editor-header">
@@ -279,18 +279,18 @@
                 </div>
                 <div class="prompt-step-fields">
                     <template x-for="field in tabs[tabKey].fields" :key="field.path">
-                        <div class="prompt-field-row" x-data="makeFieldEditor(tabKey, field.path, field.label)">
+                        <div class="prompt-field-row">
                             <div class="prompt-field-row-header">
                                 <label class="prompt-field-label">
-                                    <span x-text="label"></span>
+                                    <span x-text="field.label"></span>
                                     <span class="prompt-field-path" x-text="field.path"></span>
                                 </label>
                                 <div class="prompt-field-actions">
-                                    <button class="btn btn-xs btn-ghost" @click="resetToDefault()" title="清空，恢复使用代码内置的默认提示词">
+                                    <button class="btn btn-xs btn-ghost" @click="form[tabKey][field.path] = ''" title="清空，恢复使用代码内置的默认提示词">
                                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
                                         清空
                                     </button>
-                                    <button class="btn btn-xs btn-ghost" @click="copyValue()" title="复制">
+                                    <button class="btn btn-xs btn-ghost" @click="copyText(form[tabKey][field.path] || '')" title="复制">
                                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                                         复制
                                     </button>
@@ -299,19 +299,44 @@
                             <div class="prompt-field-body" :class="{'with-preview': showPreview}">
                                 <textarea
                                     class="prompt-field-textarea"
-                                    x-model="value"
+                                    x-model="form[tabKey][field.path]"
                                     placeholder="留空将使用代码内置的默认提示词"
                                     spellcheck="false"></textarea>
-                                <div class="prompt-field-preview" x-show="showPreview" x-html="rendered"></div>
+                                <div class="prompt-field-preview" x-show="showPreview" x-html="parseMarkdown(form[tabKey][field.path] || '')"></div>
                             </div>
                             <div class="prompt-field-stats">
-                                <span x-text="charCount + ' 字符'"></span>
+                                <span x-text="(form[tabKey][field.path] || '').length + ' 字符'"></span>
                                 <span class="prompt-stat-sep"></span>
-                                <span x-text="lineCount + ' 行'"></span>
+                                <span x-text="((form[tabKey][field.path] || '').split('\n').length) + ' 行'"></span>
                                 <label class="switch-label" style="margin-left: auto; font-size: 0.7rem;">
                                     <input type="checkbox" x-model="showPreview">
                                     <span>预览</span>
                                 </label>
+                            </div>
+                        </div>
+                    </template>
+                    <!-- Slot rows editor: procurement-only -->
+                    <template x-if="tabKey === 'procurement'">
+                        <div>
+                            <div class="prompt-step-editor-header" style="margin-top: 1.5rem;">
+                                <h3>采购场景 · 槽位收集提示词</h3>
+                                <p class="prompt-step-editor-desc">每行一个：键 = 值（覆盖同 ID 的默认提示词）。例如 <code>pr_id = 请输入采购需求编号</code></p>
+                            </div>
+                            <div class="prompt-slot-rows" x-data="slotRowsComponent()">
+                                <template x-for="(row, idx) in rows" :key="idx">
+                                    <div class="prompt-slot-row">
+                                        <input class="prompt-slot-key" type="text" x-model="row.key" placeholder="槽位 id (如 pr_id)" @change="sync()" />
+                                        <span class="prompt-slot-eq">=</span>
+                                        <input class="prompt-slot-val" type="text" x-model="row.value" placeholder="提示词文本（留空则清除覆盖）" @change="sync()" />
+                                        <button class="btn btn-xs btn-ghost" @click="remove(idx)" title="移除">
+                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                        </button>
+                                    </div>
+                                </template>
+                                <button class="btn btn-sm btn-outline" @click="add()" style="margin-top: 0.5rem;">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                    添加槽位
+                                </button>
                             </div>
                         </div>
                     </template>
@@ -329,89 +354,24 @@
         </div>
     </template>
 
-    <!-- Procurement tab: classification prompt + slot prompts in one panel -->
-    <div class="prompt-tab-panel" x-show="activeTab === 'procurement'" x-transition.opacity>
-        <div class="prompt-step-editor">
-            <div class="prompt-step-editor-header">
-                <h3 x-text="tabs.procurement.label"></h3>
-                <p class="prompt-step-editor-desc" x-text="tabs.procurement.description"></p>
-            </div>
-            <div class="prompt-step-fields">
-                <template x-for="field in tabs.procurement.fields" :key="field.path">
-                    <div class="prompt-field-row" x-data="makeFieldEditor('procurement', field.path, field.label)">
-                        <div class="prompt-field-row-header">
-                            <label class="prompt-field-label">
-                                <span x-text="label"></span>
-                                <span class="prompt-field-path" x-text="field.path"></span>
-                            </label>
-                            <div class="prompt-field-actions">
-                                <button class="btn btn-xs btn-ghost" @click="resetToDefault()" title="清空">
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-                                    清空
-                                </button>
-                                <button class="btn btn-xs btn-ghost" @click="copyValue()" title="复制">
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                    复制
-                                </button>
-                            </div>
-                        </div>
-                        <div class="prompt-field-body" :class="{'with-preview': showPreview}">
-                            <textarea
-                                class="prompt-field-textarea"
-                                x-model="value"
-                                placeholder="留空将使用代码内置的默认提示词"
-                                spellcheck="false"></textarea>
-                            <div class="prompt-field-preview" x-show="showPreview" x-html="rendered"></div>
-                        </div>
-                        <div class="prompt-field-stats">
-                            <span x-text="charCount + ' 字符'"></span>
-                            <span class="prompt-stat-sep"></span>
-                            <span x-text="lineCount + ' 行'"></span>
-                            <label class="switch-label" style="margin-left: auto; font-size: 0.7rem;">
-                                <input type="checkbox" x-model="showPreview">
-                                <span>预览</span>
-                            </label>
-                        </div>
-                    </div>
-                </template>
-            </div>
-
-            <div class="prompt-step-editor-header" style="margin-top: 1.5rem;">
-                <h3>采购场景 · 槽位收集提示词</h3>
-                <p class="prompt-step-editor-desc">每行一个：键 = 值（覆盖同 ID 的默认提示词）。例如 <code>pr_id = 请输入采购需求编号</code></p>
-            </div>
-            <div class="prompt-slot-rows" x-data="slotRowsComponent()">
-                <template x-for="(row, idx) in rows" :key="idx">
-                    <div class="prompt-slot-row">
-                        <input class="prompt-slot-key" type="text" x-model="row.key" placeholder="槽位 id (如 pr_id)" @change="sync()" />
-                        <span class="prompt-slot-eq">=</span>
-                        <input class="prompt-slot-val" type="text" x-model="row.value" placeholder="提示词文本（留空则清除覆盖）" @change="sync()" />
-                        <button class="btn btn-xs btn-ghost" @click="remove(idx)" title="移除">
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        </button>
-                    </div>
-                </template>
-                <button class="btn btn-sm btn-outline" @click="add()" style="margin-top: 0.5rem;">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    添加槽位
-                </button>
-            </div>
-
-            <div class="prompt-step-save-bar">
-                <button class="btn btn-primary" @click="saveSubTab('procurement')" :disabled="savingSubTab">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                    <span x-show="!savingSubTab">保存配置</span>
-                    <span x-show="savingSubTab">保存中…</span>
-                </button>
-                <span class="prompt-step-save-hint">保存后立即热更新 Agent，下一次对话生效</span>
-                <span class="prompt-step-save-result" x-show="subTabMessage" x-text="subTabMessage" :class="subTabResultType"></span>
-            </div>
-        </div>
-    </div>
-
 </div>
 
 <script>
+// Utility: copy text to clipboard
+function copyText(text) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {});
+    } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch(e) {}
+        document.body.removeChild(ta);
+    }
+}
+
 // Make promptSection globally available
 function promptSection() {
     return {
@@ -461,7 +421,7 @@ function promptSection() {
 
         // Tab metadata (drives the per-step editor list)
         tabs: {
-            intent: {
+            intent_recognition: {
                 label: '意图识别 · 各步骤提示词',
                 description: '覆盖 7 层意图识别管道里 LLM 调用的全部提示词。',
                 fields: [
@@ -654,6 +614,20 @@ function promptSection() {
             const ws = document.querySelector('[x-data]');
             if (ws && ws.__x && ws.__x.$data && typeof ws.__x.$data.showToast === 'function') {
                 ws.__x.$data.showToast(message, type);
+            }
+        },
+
+        copyText(text) {
+            if (!text) return;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(() => {});
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
             }
         },
 
@@ -988,78 +962,6 @@ function slotRowsComponent() {
             const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
             if (stack && typeof stack.syncSlotRows === 'function') {
                 stack.syncSlotRows(this.rows);
-            }
-        },
-    };
-}
-
-// Per-field editor component for sub-tabs
-// value is a getter so it always reads the live parent form (loadConfig is async)
-// $watch ensures any parent-side change triggers Alpine reactivity even if the
-// getter itself isn't tracked through the full object chain.
-function makeFieldEditor(tabKey, path, label) {
-    return {
-        label,
-        tabKey,
-        path,
-        _localValue: '',
-        showPreview: false,
-
-        // Always read from the live parent form so async loadConfig is always visible
-        get value() {
-            const sec = document.querySelector('[x-data*="promptSection"]');
-            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
-            return (stack && stack.form && stack.form[tabKey] && stack.form[tabKey][path]) || '';
-        },
-        set value(v) {
-            this._localValue = v;
-            const sec = document.querySelector('[x-data*="promptSection"]');
-            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
-            if (stack && stack.form && stack.form[tabKey]) {
-                stack.form[tabKey][path] = v;
-            }
-        },
-
-        get charCount() { return this.value.length; },
-        get lineCount() { return this.value ? this.value.split('\n').length : 1; },
-        get rendered() {
-            const sec = document.querySelector('[x-data*="promptSection"]');
-            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
-            if (stack && typeof stack.parseMarkdown === 'function') {
-                return stack.parseMarkdown(this.value || '');
-            }
-            return '';
-        },
-
-        init() {
-            // Grab the initial value from parent (handles the case where
-            // loadConfig has already completed by the time this runs).
-            this._localValue = this.value;
-        },
-
-        // x-model handles writes through the setter; no explicit onChange needed.
-        onChange() {},
-
-        resetToDefault() {
-            this._localValue = '';
-            const sec = document.querySelector('[x-data*="promptSection"]');
-            const stack = sec && sec._x_dataStack && sec._x_dataStack[0];
-            if (stack && stack.form && stack.form[tabKey]) {
-                stack.form[tabKey][path] = '';
-            }
-        },
-
-        copyValue() {
-            if (!this.value) return;
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(this.value).catch(() => {});
-            } else {
-                const ta = document.createElement('textarea');
-                ta.value = this.value;
-                document.body.appendChild(ta);
-                ta.select();
-                try { document.execCommand('copy'); } catch(e) {}
-                document.body.removeChild(ta);
             }
         },
     };
